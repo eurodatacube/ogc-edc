@@ -13,6 +13,8 @@ from edc_ogc.ogc.client import OGCClient, OGCRequest
 from edc_ogc.configapi import ConfigAPIDefaultLayers, ConfigAPI
 from edc_ogc.mdi import Mdi, MdiError
 
+from .dapa import dapa
+
 # -------------- App setup --------------
 app = Flask(__name__, static_url_path='/static')
 app.url_map.strict_slashes = False
@@ -141,6 +143,11 @@ def instances_json():
     return jsonify(instances)
 
 
+
+app.register_blueprint(dapa, url_prefix='/dapa')
+
+
+
 @app.route('/')
 def ows():
     if not request.query_string.decode('ascii'):
@@ -217,3 +224,4 @@ def ows_instance(instance_id):
     except Exception as e:
         logger.exception(e)
         return Response(response=f'an error occured: {e}', status=400)
+
