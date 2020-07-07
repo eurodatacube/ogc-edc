@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 
 import yaml
 import requests
+from eoxserver.core.util.timetools import parse_iso8601
 
 from .apibase import ApiBase
 from .mdi import get_mdi
@@ -78,6 +79,25 @@ class ConfigAPIBase(ApiBase):
             if layer.get('datasourceDefaults', {}).get('collectionId') == collection_id
         ]
 
+    def get_byod_collection_tile_times(self, identifier, begin=None, end=None):
+        url = f"https://services.sentinel-hub.com/api/v1/byoc/collections/{identifier}/tiles"
+        tiles = self._get(url)['data']
+        print(tiles)
+        times = [
+            parse_iso8601(tile['sensingTime'])
+            for tile in tiles
+            if 'sensingTime' in tile
+        ]
+        if begin:
+            times = [
+                time for time in times if time >= begin
+            ]
+        if end:
+            times = [
+                time for time in times if time <= end
+            ]
+        return sorted(times)
+
     def get_dataproduct(self, dataset=None, identifier=None, url=None):
         raise NotImplementedError
 
@@ -133,6 +153,9 @@ class ConfigAPIBase(ApiBase):
         # TODO: polarizations?
         elif 'defaultbands' in dataset:
             bands = dataset['defaultbands']
+
+        else:
+            bands = dataset['bands'][:1] * 3
 
         bandlist = ', '.join(f'"{band}"' for band in set(bands))
         if visual:
