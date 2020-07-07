@@ -115,7 +115,7 @@ def dispatch_wcs_get_capabilities(request, ows_url, config_client):
                 None  # TODO: whole world?
             ),
             get_range_type_from_dataset(dataset),
-            *(get_grid(dataset) + ([], []))
+            *(get_grid_from_dataset(dataset) + ([], []))
         )
         for dataset in untimed_datasets
     ]
@@ -127,6 +127,13 @@ def dispatch_wcs_get_capabilities(request, ows_url, config_client):
             make_aware(datetime.combine(dataset['timeextent'][1] or date.today(), time.min), utc),
         )
         for dataset in timed_datasets
+    ] + [
+        DatasetSeries(
+            byod_collection['id'], None,
+            None, # TODO: find out from tiles? # make_aware(datetime.combine(dataset['timeextent'][0], time.min), utc),
+            None, # TODO: find out from tiles? # make_aware(datetime.combine(dataset['timeextent'][1] or date.today(), time.min), utc),
+        )
+        for byod_collection in config_client.get_byod_collections()
     ]
     return encoder.serialize(
         encoder.encode_capabilities(
@@ -136,7 +143,6 @@ def dispatch_wcs_get_capabilities(request, ows_url, config_client):
             dataset_series_set
         )
     ), encoder.content_type
-
 
 
 def get_range_type_from_dataset(dataset):
@@ -157,7 +163,26 @@ def get_range_type_from_dataset(dataset):
         for i, band in enumerate(dataset['bands'])
     ])
 
-def get_grid(dataset):
+def get_range_type_from_byod_collection(byod_collection):
+    return RangeType(byod_collection['id'], [
+        Field(
+            index=1,
+            identifier=band,
+            description=band,
+            definition='',
+            unit_of_measure='',
+            wavelength=None,
+            significant_figures=None,
+            allowed_values=None,
+            nil_values=[],
+            data_type=None,
+            data_type_range=None,
+        )
+        for i, band in enumerate(byod_collection['additionalData']['bands'].keys())
+    ])
+
+
+def get_grid_from_dataset(dataset):
     extent = dataset['extent']
     res_x, res_y = dataset['resolution']
     return Grid(crs_url('EPSG:4326'), [
@@ -171,15 +196,37 @@ def get_grid(dataset):
     ]
 
 
+def get_grid_from_byod_collection(byod_collection):
+    units_per_pixel = min(
+        band['unitsPerPixel']
+        for band in  byod_collection['additionalData']['bands'].values()
+    )
+    extent = [-180, -90, 180, 90]
+    return Grid(crs_url('EPSG:4326'), [
+        Axis('lon', 0, units_per_pixel),
+        Axis('lat', 0, -units_per_pixel),
+    ]), [
+        extent[3], extent[0]
+    ], [
+        (extent[2] - extent[0]) / units_per_pixel,
+        (extent[3] - extent[1]) / units_per_pixel,
+    ]
+
 def get_coverage(config_client, coverage_id, dataset_name, datestr):
-    dataset = config_client.get_dataset(dataset_name)
+    try:
+        dataset = config_client.get_dataset(dataset_name)
+        grid, origin, size = get_grid_from_dataset(dataset)
+        range_type = get_range_type_from_dataset(dataset),
+    except Exception:
+        collection_name = config_client.get_byod_collection(dataset_name)
+        grid, origin, size = get_grid_from_byod_collection(collection_name)
+        range_type = get_range_type_from_byod_collection(collection_name),
+
     try:
         date = datetime.strptime(datestr, '%Y-%m-%d')
     except:
         # TODO catch exact exception
         raise Exception(f'No such coverage {coverage_id}')
-
-    grid, origin, size = get_grid(dataset)
 
     return Coverage(
         coverage_id, EOMetadata(
@@ -187,33 +234,43 @@ def get_coverage(config_client, coverage_id, dataset_name, datestr):
             date + timedelta(days=1),
             None  # TODO: whole world?
         ),
-        get_range_type_from_dataset(dataset),
+        range_type,
         grid, origin, size,
         [], []
     )
 
 def get_dataset_series(config_client, dataset_name):
-    dataset = config_client.get_dataset(dataset_name)
-    return DatasetSeries(dataset['id'])
+    try:
+        dataset = config_client.get_dataset(dataset_name)
+        return DatasetSeries(dataset['id'])
+    except Exception:
+        byod_collection = config_client.get_byod_collection(dataset_name)
+        return DatasetSeries(byod_collection['id'])
 
 
-def get_time_constraints(dataset, subsets):
-    # check if we have a temporal subsetting
+def get_temporal_subset(subsets):
+    low = None
+    high = None
     for subset in subsets:
         if subset.is_temporal:
             break
     else:
         subset = None
 
-    current = None
-    end = None
     if subset:
         if hasattr(subset, 'value'):
-            current = subset.value
-            end = subset.value
+            low = subset.value
+            high = subset.value
         else:
-            current = subset.high
-            end = subset.low
+            low = subset.high
+            high = subset.low
+
+    return low, high
+
+
+def get_time_constraints(dataset, subsets):
+    # check if we have a temporal subsetting
+    current, end = get_temporal_subset(subsets)
 
     current = current or make_aware(datetime.now(), utc)
     end = end or make_aware(datetime(1900, 1, 1), utc)
@@ -229,39 +286,59 @@ def get_time_constraints(dataset, subsets):
 
     return current, end
 
+
 def get_dataset_series_matched(config_client, dataset_series, subsets, coverages):
     dataset_name = dataset_series.identifier
-    dataset = config_client.get_dataset(dataset_name)
+    try:
+        dataset = config_client.get_dataset(dataset_name)
+        # TODO: exclude coverages from count if they are from the same DSS and time
 
-
-    # TODO: exclude coverages from count if they are from the same DSS and time
-
-    current, end = get_time_constraints(dataset, subsets)
-    dt = current - end
-    return dt.days
+        current, end = get_time_constraints(dataset, subsets)
+        dt = current - end
+        return dt.days
+    except Exception:
+        low, high = get_temporal_subset(subsets)
+        return len(config_client.get_byod_collection_tile_times(dataset_name, low, high))
 
 def expand_dataset_series(config_client, dataset_series,
                           subsets, count, skip=None):
 
     skip_ids = set(coverage.identifier for coverage in skip)
     dataset_name = dataset_series.identifier
-    dataset = config_client.get_dataset(dataset_name)
+    try:
+        dataset = config_client.get_dataset(dataset_name)
+        current, end = get_time_constraints(dataset, subsets)
+        result = []
+        while count > 0 and current >= end:
+            datestr = current.strftime('%Y-%m-%d')
+            coverage_id = f"{dataset_name}__{datestr}"
+            if coverage_id not in skip_ids:
+                count -= 1
+                result.append(
+                    get_coverage(config_client, coverage_id, dataset_name, datestr)
+                )
+            current = current - timedelta(days=1)
 
-    current, end = get_time_constraints(dataset, subsets)
+        return result
 
-    result = []
-    while count > 0 and current >= end:
-        datestr = current.strftime('%Y-%m-%d')
-        coverage_id = f"{dataset_name}__{datestr}"
-        if coverage_id not in skip_ids:
-            count -= 1
-            result.append(
-                get_coverage(config_client, coverage_id, dataset_name, datestr)
-            )
-        current = current - timedelta(days=1)
+    except Exception:
+        low, high = get_temporal_subset(subsets)
+        times = config_client.get_byod_collection_tile_times(dataset_name, low, high)
+        result = []
 
-    return result
+        for time in times:
+            if count == 0:
+                break
 
+            datestr = time.strftime('%Y-%m-%d')
+            coverage_id = f"{dataset_name}__{datestr}"
+            if coverage_id not in skip_ids:
+                count -= 1
+                result.append(
+                    get_coverage(config_client, coverage_id, dataset_name, datestr)
+                )
+
+        return result
 
 def dispatch_wcs_describe_coverage(request, config_client):
     if request.method == 'GET':
