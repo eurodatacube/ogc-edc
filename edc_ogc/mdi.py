@@ -87,7 +87,23 @@ class Mdi(ApiBase):
             }
         }
 
-    def process_image(self, sources, bbox, crs, width, height, format, evalscript,
+    def create_bounds(self, bbox_or_geom, crs):
+        if isinstance(bbox_or_geom, list):
+            return {
+                'bbox': bbox_or_geom,
+                'properties': {
+                    'crs': crs,
+                },
+            }
+        else:
+            return {
+                'geometry': bbox_or_geom,
+                'properties': {
+                    'crs': crs,
+                },
+            }
+
+    def process_image(self, sources, bbox_or_geom, crs, width, height, format, evalscript,
                       time=None, upsample=None, downsample=None,
                       max_cloud_coverage=None, mosaicking_order=None):
 
@@ -100,14 +116,11 @@ class Mdi(ApiBase):
                 sources[0].get('collectionId')
             )
 
+        bounds = self.create_bounds(bbox_or_geom, crs)
+
         request_body = {
             'input': {
-                'bounds': {
-                    'bbox': bbox,
-                    'properties': {
-                        'crs': crs,
-                    },
-                },
+                'bounds': bounds,
                 'data': [
                     self.create_data_input(
                         source, time, upsample, downsample,
