@@ -122,7 +122,7 @@ def expressions_to_evalscript(fields, inputs, aggregates):
             dynamic_fields.append((name, eval_expression(value)))
 
     out_fields = [
-        f'agg_{agg_method}(samples, "{name}")'
+        f'agg_{agg_method}(values.{name})'
         for name, _ in fields for agg_method in aggregates
     ]
 
@@ -134,27 +134,31 @@ def expressions_to_evalscript(fields, inputs, aggregates):
                 mosaicking: "ORBIT",
                 output: {{
                     bands: {len(fields) * len(aggregates)},
-                    sampleType: 'UINT16'
+                    sampleType: 'FLOAT32'
                 }}
             }};
         }}
 
-        function agg_min(samples, field) {{
-            return samples.reduce((acc, sample) => Math.min(acc, sample[field]));
+        function agg_min(values) {{
+            return values
+                .reduce((acc, value) => Math.min(acc, value));
         }}
 
-        function agg_max(samples, field) {{
-            return samples.reduce((acc, sample) => Math.max(acc, sample[field]));
+        function agg_max(values) {{
+            return values
+                .reduce((acc, value) => Math.max(acc, value));
         }}
 
-        function agg_avg(samples, field) {{
-            return samples.reduce((acc, sample) => acc + sample[field]) / samples.length;
+        function agg_avg(values) {{
+            return values
+                .reduce((acc, value) => acc + value) / values.length;
         }}
 
-        function agg_stdev(samples, field) {{
-            const mean = agg_avg(samples, field);
+        function agg_stdev(values) {{
+            const mean = agg_avg(values);
             return Math.sqrt(
-                samples.reduce((acc, sample) => acc + Math.pow(sample[field] - mean, 2), 0) / (samples.length - 1)
+                values
+                    .reduce((acc, value) => acc + Math.pow(value - mean, 2), 0) / (values.length - 1)
             );
         }}
 
@@ -163,6 +167,10 @@ def expressions_to_evalscript(fields, inputs, aggregates):
                 {' '.join(f'{field}: sample.{field},' for field in static_fields)}
                 {' '.join(f'{name}: {expr},' for name, expr in dynamic_fields)}
             }}));
+
+            const values = {{
+                {', '.join(f'{field}: samples.map(sample => sample.{field})' for field, _ in fields)}
+            }};
 
             return [
                 {', '.join(out_fields)}
