@@ -5,7 +5,7 @@ import os
 import json
 
 from dateutil.parser import parse
-from flask import Blueprint, request, Response
+from flask import Blueprint, request, Response, url_for, jsonify
 from eoxserver.core.util.timetools import parse_iso8601, parse_duration
 from eoxserver.render.browse.generate import parse_expression, extract_fields
 from eoxserver.contrib.vsi import TemporaryVSIFile
@@ -217,13 +217,36 @@ def get_area_aggregate_time(collection, fields, inputs, aggregates, time, bbox_o
 #  -------------- Routes
 #
 
+@dapa.route('/')
+def root():
+    # TODO: better structure
+    return jsonify([
+        url_for('.collection_dapa', collection=ds['id'])
+        for ds in get_config_client().get_datasets()
+    ])
+
+
+@dapa.route('/<collection>/dapa/')
+def collection_dapa(collection):
+    return jsonify({
+        'fields': url_for('.fields', collection=collection)
+    })
+
+
 @dapa.route('/<collection>/dapa/fields')
-def fields(collection_id):
-    pass
+def fields(collection):
+    # TODO: add more metadata
+    ds = get_config_client().get_dataset(collection)
+    return jsonify([
+        {
+            'id': band
+        }
+        for band in ds['bands']
+    ])
 
 
 @dapa.route('/<collection>/dapa/cube')
-def cube(collection_id):
+def cube(collection):
     pass
 
 
