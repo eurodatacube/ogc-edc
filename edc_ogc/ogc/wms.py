@@ -144,7 +144,7 @@ def dispatch_wms_get_map(config_client, wms_request):
 
     return mdi_client.process_image(
         sources=[datasource],
-        bbox=bbox,
+        bbox_or_geom=bbox,
         crs=crs,
         width=width,
         height=height,

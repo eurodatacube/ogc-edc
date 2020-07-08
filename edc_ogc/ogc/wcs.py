@@ -542,7 +542,7 @@ def dispatch_wcs_get_coverage(request, config_client):
 
     return mdi_client.process_image(
         sources=[datasource],
-        bbox=bbox,
+        bbox_or_geom=bbox,
         crs=crs,
         width=width,
         height=height,

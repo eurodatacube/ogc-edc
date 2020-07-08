@@ -2,11 +2,15 @@ from textwrap import dedent
 import _ast
 from itertools import product
 import os
+import json
 
 from dateutil.parser import parse
 from flask import Blueprint, request, Response
 from eoxserver.core.util.timetools import parse_iso8601, parse_duration
 from eoxserver.render.browse.generate import parse_expression, extract_fields
+from eoxserver.contrib.vsi import TemporaryVSIFile
+from osgeo import ogr, gdal
+import numpy as np
 
 from edc_ogc.configapi import ConfigAPIDefaultLayers
 
@@ -77,6 +81,12 @@ def parse_bbox(value):
         raise ValueError('Invalid number of elements in bbox')
     return bbox
 
+def parse_point(value):
+    bbox = [float(v) for v in value.split(',')]
+    if len(bbox) not in (2, 3):
+        raise ValueError('Invalid number of elements in position')
+    return bbox
+
 
 def parse_time(value):
     parts = value.split('/')
@@ -112,7 +122,7 @@ def eval_expression(expr, varname='sample'):
         return str(expr.n)
 
 
-def expressions_to_evalscript(fields, inputs, aggregates):
+def expressions_to_evalscript(fields, inputs, aggregates=None):
     static_fields = []
     dynamic_fields = []
     for name, value in fields:
@@ -178,6 +188,31 @@ def expressions_to_evalscript(fields, inputs, aggregates):
         }}
     """)
 
+
+def get_area_aggregate_time(collection, fields, inputs, aggregates, time, bbox_or_geom, bbox,
+                            width=None, height=None, format='image/tiff'):
+    client = get_config_client()
+
+    evalscript = expressions_to_evalscript(fields, inputs, aggregates)
+
+    ds = client.get_dataset(collection)
+
+    dx, dy = ds['resolution']
+    width = width if width is not None else min(512, int(abs((bbox[2] - bbox[0]) / dx)))
+    height = height if height is not None else min(512, int(abs((bbox[3] - bbox[1]) / dy)))
+
+    return client.get_mdi().process_image(
+        [{'type': collection}],
+        bbox_or_geom,
+        crs='http://www.opengis.net/def/crs/EPSG/0/4326',
+        width=width,
+        height=height,
+        format=format,
+        evalscript=evalscript,
+        time=time
+    )
+
+
 #
 #  -------------- Routes
 #
@@ -194,50 +229,93 @@ def cube(collection_id):
 
 @dapa.route('/<collection>/dapa/area')
 def area(collection):
+    # parse inputs
     fields, inputs = parse_fields(request.args['fields'])
     aggregates = parse_aggregates(request.args['aggregate'])
-    evalscript = expressions_to_evalscript(fields, inputs, aggregates)
     time = parse_time(request.args['time'])
 
-
-    print(evalscript)
-
     if 'bbox' in request.args:
-        bbox = parse_bbox(request.args['bbox'])
+        bbox_or_geom = parse_bbox(request.args['bbox'])
+        bbox = bbox_or_geom
+    elif 'geom' in request.args:
+        geometry = ogr.CreateGeometryFromWkt(request.args['geom'])
+        bbox_or_geom = json.loads(geometry.ExportToJson())
+        bbox = geometry.GetEnvelope()
     else:
-        raise NotImplementedError('Currently bbox is required')
+        raise NotImplementedError('Either bbox or geom is required')
 
-    client = get_config_client()
-
-    response = client.get_mdi().process_image(
-        [{'type': collection}],
-        bbox,
-        crs='http://www.opengis.net/def/crs/EPSG/0/4326',
-        width=512,
-        height=512,
-        format='image/tiff',
-        evalscript=evalscript,
-        time=time
+    response = get_area_aggregate_time(
+        collection, fields, inputs, aggregates, time, bbox_or_geom, bbox
     )
-
     return Response(response, mimetype='image/tiff')
 
 
 @dapa.route('/<collection>/dapa/timeseries/area')
-def timeseries_area(collection_id):
+def timeseries_area(collection):
     pass
 
 
 @dapa.route('/<collection>/dapa/timeseries/position')
-def timeseries_position(collection_id):
+def timeseries_position(collection):
     pass
 
 
 @dapa.route('/<collection>/dapa/value/area')
-def value_area(collection_id):
-    pass
+def value_area(collection):
+    # parse inputs
+    fields, inputs = parse_fields(request.args['fields'])
+    aggregates = parse_aggregates(request.args['aggregate'])
+    time = parse_time(request.args['time'])
+
+    if 'bbox' in request.args:
+        bbox_or_geom = parse_bbox(request.args['bbox'])
+        bbox = bbox_or_geom
+    elif 'geom' in request.args:
+        geometry = ogr.CreateGeometryFromWkt(request.args['geom'])
+        bbox_or_geom = json.loads(geometry.ExportToJson())
+        bbox = geometry.GetEnvelope()
+    else:
+        raise NotImplementedError('Either bbox or geom is required')
+
+    response = get_area_aggregate_time(
+        collection, fields, inputs, aggregates, time, bbox_or_geom, bbox
+    )
+    with TemporaryVSIFile.from_buffer(response) as f:
+        ds = gdal.Open(f.name)
+        values = ','.join(str(v) for v in np.mean(ds.ReadAsArray(), (1, 2)))
+        del ds
+
+    return Response(values, mimetype='text/plain')
 
 
 @dapa.route('/<collection>/dapa/value/position')
-def value_position(collection_id):
-    pass
+def value_position(collection):
+    # parse inputs
+    fields, inputs = parse_fields(request.args['fields'])
+    aggregates = parse_aggregates(request.args['aggregate'])
+    time = parse_time(request.args['time'])
+    point = parse_point(request.args['point'])
+
+    client = get_config_client()
+    ds = client.get_dataset(collection)
+
+    dx, dy = [abs(v) for v in ds['resolution']]
+    bbox = [
+        point[0] - dx / 2,
+        point[1] - dy / 2,
+        point[0] + dx / 2,
+        point[1] + dy / 2,
+    ]
+
+    response = get_area_aggregate_time(
+        collection, fields, inputs, aggregates, time, bbox, bbox,
+        width=1, height=1, format='image/tiff'
+    )
+
+    # TIFF reading here is necessary
+    with TemporaryVSIFile.from_buffer(response) as f:
+        ds = gdal.Open(f.name)
+        values = ','.join(str(v) for v in ds.ReadAsArray().flatten())
+        del ds
+
+    return Response(values, mimetype='text/plain')
