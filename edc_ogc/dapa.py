@@ -224,7 +224,7 @@ def get_area_aggregate_time(collection, fields, inputs, aggregates, time, bbox_o
     width = width if width is not None else min(512, int(abs((bbox[2] - bbox[0]) / dx)))
     height = height if height is not None else min(512, int(abs((bbox[3] - bbox[1]) / dy)))
 
-    return client.get_mdi().process_image(
+    return client.get_mdi(collection).process_image(
         [{'type': collection}],
         bbox_or_geom,
         crs='http://www.opengis.net/def/crs/EPSG/0/4326',
