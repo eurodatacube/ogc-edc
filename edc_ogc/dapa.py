@@ -154,7 +154,7 @@ def expressions_to_evalscript(fields, inputs, aggregates=None):
         ]
     else:
         out_fields = [
-            f'values.{name}[0]'
+            f'sample.{name}'
             for name, _ in fields
         ]
 
@@ -163,8 +163,8 @@ def expressions_to_evalscript(fields, inputs, aggregates=None):
         function setup() {{
             return {{
                 input: [{', '.join(f'"{input_}"' for input_ in inputs)}],
-                //mosaicking: {'"ORBIT"' if aggregates else '"SIMPLE"'}, TODO
-                mosaicking: "ORBIT",
+                mosaicking: {'"ORBIT"' if aggregates else '"SIMPLE"'}, // TODO
+                //mosaicking: "ORBIT",
                 output: {{
                     bands: {len(fields) * (len(aggregates) if aggregates else 1)},
                     sampleType: 'FLOAT32'
@@ -195,7 +195,7 @@ def expressions_to_evalscript(fields, inputs, aggregates=None):
             );
         }}
 
-        function evaluatePixel(samples, scenes, inputMetadata, customData, outputMetadata) {{
+        function evaluatePixelSamples(samples, scenes, inputMetadata, customData, outputMetadata) {{
             samples = samples.map(sample => ({{
                 {' '.join(f'{field}: sample.{field},' for field in static_fields)}
                 {' '.join(f'{name}: {expr},' for name, expr in dynamic_fields)}
@@ -208,6 +208,16 @@ def expressions_to_evalscript(fields, inputs, aggregates=None):
             return [
                 {', '.join(out_fields)}
             ];
+        }}
+
+        function evaluatePixelSample(sample, scenes, inputMetadata, customData, outputMetadata) {{
+            return [
+                {', '.join(out_fields)}
+            ];
+        }}
+
+        function evaluatePixel(samples, scenes, inputMetadata, customData, outputMetadata) {{
+            return {'evaluatePixelSamples' if aggregates else 'evaluatePixelSample'}(samples, scenes, inputMetadata, customData, outputMetadata);
         }}
     """)
 
@@ -296,9 +306,9 @@ def cube(collection):
     height = min(512, int(abs((bbox[3] - bbox[1]) / dy)))
 
     # create dimensions
-    d_time = rootgrp.createDimension("time", None)
-    d_x = rootgrp.createDimension("x", width)
-    d_y = rootgrp.createDimension("y", height)
+    rootgrp.createDimension("time", None)
+    rootgrp.createDimension("x", width)
+    rootgrp.createDimension("y", height)
 
     v_time = rootgrp.createVariable("time", "f8", ("time",))
     v_x = rootgrp.createVariable("x", "f4", ("x",))
@@ -355,10 +365,20 @@ def cube(collection):
 
 @dapa.route('/<collection>/dapa/area')
 def area(collection):
+    client = get_config_client()
+    ds = client.get_dataset(collection)
+
+    timeextent = ds.get('timeextent')
+
     # parse inputs
     fields, inputs = parse_fields(request.args['fields'])
-    aggregates = parse_aggregates(request.args['aggregate'])
-    time = parse_time(request.args['time'])
+
+    if timeextent:
+        aggregates = parse_aggregates(request.args['aggregate'])
+        time = parse_time(request.args['time'])
+    else:
+        aggregates = None
+        time = None
 
     if 'bbox' in request.args:
         bbox_or_geom = parse_bbox(request.args['bbox'])
@@ -378,7 +398,11 @@ def area(collection):
     with TemporaryVSIFile.from_buffer(response) as f:
         ds = gdal.Open(f.name, gdal.GA_Update)
 
-        names = [f'{name}_{agg}' for name, _ in fields for agg in aggregates]
+        if aggregates:
+            names = [f'{name}_{agg}' for name, _ in fields for agg in aggregates]
+        else:
+            names = [name for name, _ in fields]
+
         for i, name in enumerate(names, start=1):
             band = ds.GetRasterBand(i)
             band.SetDescription(name)
@@ -402,6 +426,12 @@ NUMPY_AGG_METHODS = {
 
 @dapa.route('/<collection>/dapa/timeseries/area')
 def timeseries_area(collection):
+    client = get_config_client()
+    ds = client.get_dataset(collection)
+    timeextent = ds.get('timeextent')
+    if not timeextent:
+        raise Exception('This collection does not support timeseries extraction')
+
     # parse inputs
     fields, inputs = parse_fields(request.args['fields'])
     aggregates = parse_aggregates(request.args['aggregate'])
@@ -417,9 +447,7 @@ def timeseries_area(collection):
     else:
         raise NotImplementedError('Either bbox or geom is required')
 
-    client = get_config_client()
     catalog_client = client.get_catalog_client(collection)
-    ds = client.get_dataset(collection)
 
     search_response = json.loads(
         catalog_client.search(
@@ -457,13 +485,17 @@ def timeseries_area(collection):
 
 @dapa.route('/<collection>/dapa/timeseries/position')
 def timeseries_position(collection):
+    client = get_config_client()
+    ds = client.get_dataset(collection)
+    timeextent = ds.get('timeextent')
+    if not timeextent:
+        raise Exception('This collection does not support timeseries extraction')
+
     fields, inputs = parse_fields(request.args['fields'])
     time = parse_time(request.args['time'])
     point = parse_point(request.args['point'])
 
-    client = get_config_client()
     catalog_client = client.get_catalog_client(collection)
-    ds = client.get_dataset(collection)
 
     dx, dy = [abs(v) for v in ds['resolution']]
     bbox = [
@@ -505,10 +537,19 @@ def timeseries_position(collection):
 
 @dapa.route('/<collection>/dapa/value/area')
 def value_area(collection):
+    client = get_config_client()
+    ds = client.get_dataset(collection)
+
+    timeextent = ds.get('timeextent')
+
     # parse inputs
     fields, inputs = parse_fields(request.args['fields'])
     aggregates = parse_aggregates(request.args['aggregate'])
-    time = parse_time(request.args['time'])
+
+    if timeextent:
+        time = parse_time(request.args['time'])
+    else:
+        time = None
 
     if 'bbox' in request.args:
         bbox_or_geom = parse_bbox(request.args['bbox'])
@@ -520,12 +561,28 @@ def value_area(collection):
     else:
         raise NotImplementedError('Either bbox or geom is required')
 
-    response = get_area_aggregate_time(
-        collection, fields, inputs, aggregates, time, bbox_or_geom, bbox
-    )
+    if timeextent:
+        response = get_area_aggregate_time(
+            collection, fields, inputs, aggregates, time, bbox_or_geom, bbox
+        )
+    else:
+        response = get_area_aggregate_time(
+            collection, fields, inputs, None, time, bbox_or_geom, bbox
+        )
+
     with TemporaryVSIFile.from_buffer(response) as f:
         ds = gdal.Open(f.name)
-        values = ','.join(str(v) for v in np.nanmean(ds.ReadAsArray(), (1, 2)))
+        arrays = ds.ReadAsArray()
+        if len(arrays.shape) == 2:
+            arrays = arrays.reshape(1, *arrays.shape)
+
+        if timeextent:
+            values = ','.join(str(v) for v in np.nanmean(arrays, (1, 2)))
+        else:
+            values = ','.join([
+                str(NUMPY_AGG_METHODS[agg](array))
+                for array in arrays for agg in aggregates
+            ])
         del ds
 
     return Response(values, mimetype='text/plain')
@@ -533,14 +590,20 @@ def value_area(collection):
 
 @dapa.route('/<collection>/dapa/value/position')
 def value_position(collection):
-    # parse inputs
-    fields, inputs = parse_fields(request.args['fields'])
-    aggregates = parse_aggregates(request.args['aggregate'])
-    time = parse_time(request.args['time'])
-    point = parse_point(request.args['point'])
-
     client = get_config_client()
     ds = client.get_dataset(collection)
+
+    timeextent = ds.get('timeextent')
+
+    # parse inputs
+    fields, inputs = parse_fields(request.args['fields'])
+    point = parse_point(request.args['point'])
+    if timeextent:
+        time = parse_time(request.args['time'])
+        aggregates = parse_aggregates(request.args['aggregate'])
+    else:
+        time = None
+        aggregates = None
 
     dx, dy = [abs(v) for v in ds['resolution']]
     bbox = [
