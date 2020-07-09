@@ -6,14 +6,20 @@ import json
 from datetime import timedelta
 import csv
 import io
+from uuid import uuid4
+import tempfile
+import traceback
 
 from dateutil.parser import parse
-from flask import Blueprint, request, Response, url_for, jsonify
+from flask import (
+    Blueprint, request, Response, url_for, jsonify, send_file, after_this_request
+)
 from eoxserver.core.util.timetools import parse_iso8601, parse_duration
 from eoxserver.render.browse.generate import parse_expression, extract_fields
 from eoxserver.contrib.vsi import TemporaryVSIFile
 from osgeo import ogr, gdal
 import numpy as np
+import netCDF4
 
 from edc_ogc.configapi import ConfigAPIDefaultLayers
 
@@ -261,10 +267,90 @@ def fields(collection):
         for band in ds['bands']
     ])
 
-
 @dapa.route('/<collection>/dapa/cube')
 def cube(collection):
-    pass
+    fields, inputs = parse_fields(request.args['fields'])
+    time = parse_time(request.args['time'])
+
+    if 'bbox' in request.args:
+        bbox_or_geom = parse_bbox(request.args['bbox'])
+        bbox = bbox_or_geom
+    elif 'geom' in request.args:
+        geometry = ogr.CreateGeometryFromWkt(request.args['geom'])
+        bbox_or_geom = json.loads(geometry.ExportToJson())
+        bbox = geometry.GetEnvelope()
+    else:
+        raise NotImplementedError('Either bbox or geom is required')
+
+    client = get_config_client()
+    catalog_client = client.get_catalog_client(collection)
+    ds = client.get_dataset(collection)
+    dx, dy = ds['resolution']
+
+    filename = f'{tempfile.gettempdir()}/{uuid4().hex}.nc'
+
+    rootgrp = netCDF4.Dataset(filename, 'w', format='NETCDF4')
+    fieldnames = [name for name, _ in fields]
+
+    width = min(512, int(abs((bbox[2] - bbox[0]) / dx)))
+    height = min(512, int(abs((bbox[3] - bbox[1]) / dy)))
+
+    # create dimensions
+    d_time = rootgrp.createDimension("time", None)
+    d_x = rootgrp.createDimension("x", width)
+    d_y = rootgrp.createDimension("y", height)
+
+    v_time = rootgrp.createVariable("time", "f8", ("time",))
+    v_x = rootgrp.createVariable("x", "f4", ("x",))
+    v_y = rootgrp.createVariable("y", "f4", ("y",))
+
+    v_time.units = "hours since 0001-01-01 00:00:00.0"
+    v_time.calendar = "gregorian"
+
+    variables = [
+        rootgrp.createVariable(name, "f4", ("time", "y", "x"))
+        for name in fieldnames
+    ]
+
+    v_x[:] = np.linspace(bbox[0], bbox[2], width)
+    v_y[:] = np.linspace(bbox[1], bbox[3], height)
+
+    # iterate over all slices
+    search_response = json.loads(
+        catalog_client.search(
+            ds['search_collection'], bbox_or_geom, time,
+            # fields=['property.time'] # TODO: optimization
+        )
+    )
+    for i, feature in enumerate(search_response['features']):
+        item_time = parse_iso8601(feature['properties']['datetime'])
+        response = get_area_aggregate_time(
+            collection, fields, inputs, None,
+            [item_time - timedelta(minutes=30), item_time + timedelta(minutes=30)],
+            bbox_or_geom, bbox,
+            width, height,
+        )
+
+        v_time[i] = netCDF4.date2num(
+            item_time, units=v_time.units, calendar=v_time.calendar
+        )
+
+        with TemporaryVSIFile.from_buffer(response) as f:
+            ds = gdal.Open(f.name)
+
+            data = ds.ReadAsArray()
+            for var, values in zip(variables, data):
+                var[i, :, :] = values
+
+    rootgrp.close()
+
+    # add handler to delete the file after sending it
+    @after_this_request
+    def delete_file(response):
+        os.remove(filename)
+        return response
+
+    return send_file(filename, mimetype='application/x-netcdf')
 
 
 @dapa.route('/<collection>/dapa/area')
@@ -287,14 +373,30 @@ def area(collection):
     response = get_area_aggregate_time(
         collection, fields, inputs, aggregates, time, bbox_or_geom, bbox
     )
+
+    # open with GDAL to set the band names
+    with TemporaryVSIFile.from_buffer(response) as f:
+        ds = gdal.Open(f.name, gdal.GA_Update)
+
+        names = [f'{name}_{agg}' for name, _ in fields for agg in aggregates]
+        for i, name in enumerate(names, start=1):
+            band = ds.GetRasterBand(i)
+            band.SetDescription(name)
+        ds.FlushCache()
+        ds = None
+
+        # rewind and re-read
+        f.seek(0)
+        response = f.read()
+
     return Response(response, mimetype='image/tiff')
 
 
 NUMPY_AGG_METHODS = {
-    'min': np.amin,
-    'max': np.amax,
-    'avg': np.mean,
-    'stdev': np.std,
+    'min': np.nanmin,
+    'max': np.nanmax,
+    'avg': np.nanmean,
+    'stdev': np.nanstd,
 }
 
 
@@ -423,7 +525,7 @@ def value_area(collection):
     )
     with TemporaryVSIFile.from_buffer(response) as f:
         ds = gdal.Open(f.name)
-        values = ','.join(str(v) for v in np.mean(ds.ReadAsArray(), (1, 2)))
+        values = ','.join(str(v) for v in np.nanmean(ds.ReadAsArray(), (1, 2)))
         del ds
 
     return Response(values, mimetype='text/plain')
