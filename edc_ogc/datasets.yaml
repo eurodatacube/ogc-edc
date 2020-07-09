@@ -35,6 +35,7 @@
   timeextent: [2013-02-11, null]
   api_endpoint: https://services-uswest2.sentinel-hub.com/api/v1
   sample_type: UINT16
+  search_collection: landsat-8-l1c
 
 - id: S1GRD
   '@id': https://services.sentinel-hub.com/configuration/v1/datasets/S1GRD
@@ -45,6 +46,7 @@
   resolution: [8.983152841100729e-05, 8.983152841100729e-05]
   timeextent: [2014-04-03, null]
   sample_type: UINT16
+  search_collection: sentinel-1-grd
 
 - id: S2L1C
   '@id': https://services.sentinel-hub.com/configuration/v1/datasets/S2L1C
@@ -56,6 +58,7 @@
   resolution: [8.983152841100729e-05, 8.983152841100729e-05]
   timeextent: [2015-06-23, null]
   sample_type: UINT16
+  search_collection: sentinel-2-l1c
 
 - id: S2L2A
   '@id': https://services.sentinel-hub.com/configuration/v1/datasets/S2L2A
@@ -67,6 +70,7 @@
   resolution: [8.983152841100729e-05, 8.983152841100729e-05]
   timeextent: [2015-06-23, null]
   sample_type: UINT16
+  search_collection: sentinel-2-l2a
 
 - id: S3OLCI
   '@id': https://services.sentinel-hub.com/configuration/v1/datasets/S3OLCI
@@ -79,6 +83,7 @@
   timeextent: [2016-02-16, null]
   api_endpoint: https://creodias.sentinel-hub.com/api/v1
   sample_type: UINT16
+  search_collection: sentinel-3-olci
 
 - id: S3SLSTR
   '@id': https://services.sentinel-hub.com/configuration/v1/datasets/S3SLSTR
@@ -91,6 +96,7 @@
   timeextent: [2016-02-16, null]
   api_endpoint: https://creodias.sentinel-hub.com/api/v1
   sample_type: UINT16
+  search_collection: sentinel-3-slstr
 
 - id: S5PL2
   '@id': https://services.sentinel-hub.com/configuration/v1/datasets/S5PL2
@@ -103,6 +109,7 @@
   timeextent: [2016-02-16, null] # TODO
   api_endpoint: https://creodias.sentinel-hub.com/api/v1
   sample_type: UINT16
+  search_collection: sentinel-5p-l2
 
 - id: MODIS
   '@id': https://services.sentinel-hub.com/configuration/v1/datasets/MODIS

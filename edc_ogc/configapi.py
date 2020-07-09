@@ -9,6 +9,7 @@ from eoxserver.core.util.timetools import parse_iso8601
 
 from .apibase import ApiBase
 from .mdi import get_mdi
+from .catalog import get_catalog_client
 
 
 DEFAULT_API_URL = "https://services.sentinel-hub.com/configuration/v1"
@@ -40,6 +41,14 @@ class ConfigAPIBase(ApiBase):
             )
         else:
             return get_mdi(None, self.client_id, self.client_secret)
+
+    def get_catalog_client(self, dataset_name):
+        dataset = self.get_dataset(dataset_name)
+        return get_catalog_client(
+            dataset.get('api_endpoint'),
+            self.client_id,
+            self.client_secret
+        )
 
     def get_datasets(self):
         return self.datasets

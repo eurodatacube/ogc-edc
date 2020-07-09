@@ -3,6 +3,9 @@ import _ast
 from itertools import product
 import os
 import json
+from datetime import timedelta
+import csv
+import io
 
 from dateutil.parser import parse
 from flask import Blueprint, request, Response, url_for, jsonify
@@ -72,7 +75,14 @@ def parse_fields(value):
 
 
 def parse_aggregates(value):
-    return value.split(',')
+    aggs = value.split(',')
+    allowed = ('min', 'max', 'avg', 'stdev')
+    for agg in aggs:
+        if agg not in allowed:
+            raise ValueError(
+                f"Invalid aggregates item. Must be one of {', '.join(allowed)}"
+            )
+    return aggs
 
 
 def parse_bbox(value):
@@ -131,19 +141,26 @@ def expressions_to_evalscript(fields, inputs, aggregates=None):
         else:
             dynamic_fields.append((name, eval_expression(value)))
 
-    out_fields = [
-        f'agg_{agg_method}(values.{name})'
-        for name, _ in fields for agg_method in aggregates
-    ]
+    if aggregates:
+        out_fields = [
+            f'agg_{agg_method}(values.{name})'
+            for name, _ in fields for agg_method in aggregates
+        ]
+    else:
+        out_fields = [
+            f'values.{name}[0]'
+            for name, _ in fields
+        ]
 
     return dedent(f"""\
         //VERSION=3
         function setup() {{
             return {{
                 input: [{', '.join(f'"{input_}"' for input_ in inputs)}],
+                //mosaicking: {'"ORBIT"' if aggregates else '"SIMPLE"'}, TODO
                 mosaicking: "ORBIT",
                 output: {{
-                    bands: {len(fields) * len(aggregates)},
+                    bands: {len(fields) * (len(aggregates) if aggregates else 1)},
                     sampleType: 'FLOAT32'
                 }}
             }};
@@ -273,14 +290,115 @@ def area(collection):
     return Response(response, mimetype='image/tiff')
 
 
+NUMPY_AGG_METHODS = {
+    'min': np.amin,
+    'max': np.amax,
+    'avg': np.mean,
+    'stdev': np.std,
+}
+
+
 @dapa.route('/<collection>/dapa/timeseries/area')
 def timeseries_area(collection):
-    pass
+    # parse inputs
+    fields, inputs = parse_fields(request.args['fields'])
+    aggregates = parse_aggregates(request.args['aggregate'])
+    time = parse_time(request.args['time'])
+
+    if 'bbox' in request.args:
+        bbox_or_geom = parse_bbox(request.args['bbox'])
+        bbox = bbox_or_geom
+    elif 'geom' in request.args:
+        geometry = ogr.CreateGeometryFromWkt(request.args['geom'])
+        bbox_or_geom = json.loads(geometry.ExportToJson())
+        bbox = geometry.GetEnvelope()
+    else:
+        raise NotImplementedError('Either bbox or geom is required')
+
+    client = get_config_client()
+    catalog_client = client.get_catalog_client(collection)
+    ds = client.get_dataset(collection)
+
+    search_response = json.loads(
+        catalog_client.search(
+            ds['search_collection'], bbox_or_geom, time,
+            # fields=['property.time'] # TODO: optimization
+        )
+    )
+
+    tmp = io.StringIO()
+    writer = csv.writer(tmp)
+    writer.writerow(['datetime'] + [f'{name}_{agg}' for name, _ in fields for agg in aggregates])
+
+    for feature in search_response['features']:
+        item_time = parse_iso8601(feature['properties']['datetime'])
+        response = get_area_aggregate_time(
+            collection, fields, inputs, None,
+            [item_time - timedelta(minutes=30), item_time + timedelta(minutes=30)],
+            bbox_or_geom, bbox,
+        )
+
+        # TIFF reading here is necessary
+        with TemporaryVSIFile.from_buffer(response) as f:
+            ds = gdal.Open(f.name)
+            arrays = ds.ReadAsArray()
+            writer.writerow(
+                [feature['properties']['datetime']] + [
+                    str(NUMPY_AGG_METHODS[agg](array))
+                    for array in arrays for agg in aggregates
+                ]
+            )
+            del ds
+
+    return Response(tmp.getvalue(), mimetype='text/csv')
 
 
 @dapa.route('/<collection>/dapa/timeseries/position')
 def timeseries_position(collection):
-    pass
+    fields, inputs = parse_fields(request.args['fields'])
+    time = parse_time(request.args['time'])
+    point = parse_point(request.args['point'])
+
+    client = get_config_client()
+    catalog_client = client.get_catalog_client(collection)
+    ds = client.get_dataset(collection)
+
+    dx, dy = [abs(v) for v in ds['resolution']]
+    bbox = [
+        point[0] - dx / 2,
+        point[1] - dy / 2,
+        point[0] + dx / 2,
+        point[1] + dy / 2,
+    ]
+
+    search_response = json.loads(
+        catalog_client.search(
+            ds['search_collection'], bbox, time,
+            # fields=['property.time'] # TODO: optimization
+        )
+    )
+
+    tmp = io.StringIO()
+    writer = csv.writer(tmp)
+    writer.writerow(['datetime'] + [name for name, _ in fields])
+    for feature in search_response['features']:
+        item_time = parse_iso8601(feature['properties']['datetime'])
+        response = get_area_aggregate_time(
+            collection, fields, inputs, None,
+            [item_time - timedelta(minutes=30), item_time + timedelta(minutes=30)],
+            bbox, bbox,
+            width=1, height=1, format='image/tiff'
+        )
+
+        # TIFF reading here is necessary
+        with TemporaryVSIFile.from_buffer(response) as f:
+            ds = gdal.Open(f.name)
+            writer.writerow(
+                [feature['properties']['datetime']] + [str(v) for v in ds.ReadAsArray().flatten()]
+            )
+            del ds
+
+    return Response(tmp.getvalue(), mimetype='text/csv')
 
 
 @dapa.route('/<collection>/dapa/value/area')
