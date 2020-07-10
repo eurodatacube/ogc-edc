@@ -211,6 +211,11 @@ def expressions_to_evalscript(fields, inputs, aggregates=None):
         }}
 
         function evaluatePixelSample(sample, scenes, inputMetadata, customData, outputMetadata) {{
+            sample = {{
+                {' '.join(f'{field}: sample.{field},' for field in static_fields)}
+                {' '.join(f'{name}: {expr},' for name, expr in dynamic_fields)}
+            }};
+
             return [
                 {', '.join(out_fields)}
             ];
