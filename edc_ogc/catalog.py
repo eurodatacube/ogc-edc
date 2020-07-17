@@ -42,17 +42,21 @@ class CatalogClient(ApiBase):
 
         return resp.content
 
-    def search(self, collection, bbox_or_geom, time, limit=1000):
+    def search(self, collection, bbox_or_geom, time, next_key=None, limit=1000, fields=None):
         request_body = {
             'collections': [collection],
             'datetime': '/'.join(isoformat(t) for t in time),
             'limit': limit,
+            'next': next_key,
         }
 
         if isinstance(bbox_or_geom, list):
             request_body['bbox'] = bbox_or_geom
         else:
             request_body['intersects'] = bbox_or_geom
+
+        if fields:
+            request_body['fields'] = {'include': fields}
 
         return self.with_retry(self.send_search_request, collection, request_body)
 

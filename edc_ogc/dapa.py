@@ -120,6 +120,34 @@ def parse_time(value):
         raise ValueError(f'Invalid time value: {value}')
 
 
+def search_times(dataset, catalog_client, bbox_or_geom, time):
+    result_times = []
+    next_key = None
+    while True:
+        search_response = json.loads(
+            catalog_client.search(
+                dataset['search_collection'], bbox_or_geom, time,
+                fields=['property.datetime'],
+                next_key=next_key,
+            )
+        )
+        result_times.extend(
+            feature['properties']['datetime']
+            for feature in search_response['features']
+        )
+
+        next_key = None
+        for link in search_response.get('links', []):
+            if link.get('rel') == 'next':
+                next_key = link.get('body', {}).get('next')
+
+        if not next_key:
+            break
+
+    result_times.sort()
+    return result_times
+
+
 OPERATOR_MAP = {
     _ast.Add: '+',
     _ast.Sub: '-',
@@ -331,14 +359,8 @@ def cube(collection):
     v_y[:] = np.linspace(bbox[1], bbox[3], height)
 
     # iterate over all slices
-    search_response = json.loads(
-        catalog_client.search(
-            ds['search_collection'], bbox_or_geom, time,
-            # fields=['property.time'] # TODO: optimization
-        )
-    )
-    for i, feature in enumerate(search_response['features']):
-        item_time = parse_iso8601(feature['properties']['datetime'])
+    for i, raw_time in enumerate(search_times(ds, catalog_client, bbox_or_geom, time)):
+        item_time = parse_iso8601(raw_time)
         response = get_area_aggregate_time(
             collection, fields, inputs, None,
             [item_time - timedelta(minutes=30), item_time + timedelta(minutes=30)],
@@ -454,19 +476,12 @@ def timeseries_area(collection):
 
     catalog_client = client.get_catalog_client(collection)
 
-    search_response = json.loads(
-        catalog_client.search(
-            ds['search_collection'], bbox_or_geom, time,
-            # fields=['property.time'] # TODO: optimization
-        )
-    )
-
     tmp = io.StringIO()
     writer = csv.writer(tmp)
     writer.writerow(['datetime'] + [f'{name}_{agg}' for name, _ in fields for agg in aggregates])
 
-    for feature in search_response['features']:
-        item_time = parse_iso8601(feature['properties']['datetime'])
+    for raw_time in search_times(ds, catalog_client, bbox_or_geom, time):
+        item_time = parse_iso8601(raw_time)
         response = get_area_aggregate_time(
             collection, fields, inputs, None,
             [item_time - timedelta(minutes=30), item_time + timedelta(minutes=30)],
@@ -478,7 +493,7 @@ def timeseries_area(collection):
             ds = gdal.Open(f.name)
             arrays = ds.ReadAsArray()
             writer.writerow(
-                [feature['properties']['datetime']] + [
+                [raw_time] + [
                     str(NUMPY_AGG_METHODS[agg](array))
                     for array in arrays for agg in aggregates
                 ]
@@ -510,18 +525,11 @@ def timeseries_position(collection):
         point[1] + dy / 2,
     ]
 
-    search_response = json.loads(
-        catalog_client.search(
-            ds['search_collection'], bbox, time,
-            # fields=['property.time'] # TODO: optimization
-        )
-    )
-
     tmp = io.StringIO()
     writer = csv.writer(tmp)
     writer.writerow(['datetime'] + [name for name, _ in fields])
-    for feature in search_response['features']:
-        item_time = parse_iso8601(feature['properties']['datetime'])
+    for raw_time in search_times(ds, catalog_client, bbox, time):
+        item_time = parse_iso8601(raw_time)
         response = get_area_aggregate_time(
             collection, fields, inputs, None,
             [item_time - timedelta(minutes=30), item_time + timedelta(minutes=30)],
@@ -533,7 +541,7 @@ def timeseries_position(collection):
         with TemporaryVSIFile.from_buffer(response) as f:
             ds = gdal.Open(f.name)
             writer.writerow(
-                [feature['properties']['datetime']] + [str(v) for v in ds.ReadAsArray().flatten()]
+                [raw_time] + [str(v) for v in ds.ReadAsArray().flatten()]
             )
             del ds
 
