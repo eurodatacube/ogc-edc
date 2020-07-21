@@ -492,6 +492,9 @@ def timeseries_area(collection):
         with TemporaryVSIFile.from_buffer(response) as f:
             ds = gdal.Open(f.name)
             arrays = ds.ReadAsArray()
+            if len(arrays.shape) == 2:
+                arrays = arrays.reshape(1, *arrays.shape)
+
             writer.writerow(
                 [raw_time] + [
                     str(NUMPY_AGG_METHODS[agg](array))
