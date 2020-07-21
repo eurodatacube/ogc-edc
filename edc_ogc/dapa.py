@@ -356,7 +356,7 @@ def cube(collection):
     ]
 
     v_x[:] = np.linspace(bbox[0], bbox[2], width)
-    v_y[:] = np.linspace(bbox[1], bbox[3], height)
+    v_y[:] = np.linspace(bbox[3], bbox[1], height)
 
     # iterate over all slices
     for i, raw_time in enumerate(search_times(ds, catalog_client, bbox_or_geom, time)):
@@ -375,8 +375,11 @@ def cube(collection):
         with TemporaryVSIFile.from_buffer(response) as f:
             ds = gdal.Open(f.name)
 
-            data = ds.ReadAsArray()
-            for var, values in zip(variables, data):
+            arrays = ds.ReadAsArray()
+            if len(arrays.shape) == 2:
+                arrays = arrays.reshape(1, *arrays.shape)
+
+            for var, values in zip(variables, arrays):
                 var[i, :, :] = values
 
     rootgrp.close()
