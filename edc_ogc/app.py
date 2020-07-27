@@ -143,12 +143,10 @@ def instances_json():
     return jsonify(instances)
 
 
-
-app.register_blueprint(dapa, url_prefix='/dapa')
-
+app.register_blueprint(dapa, url_prefix='/oapi')
 
 
-@app.route('/')
+@app.route('/ows')
 def ows():
     if not request.query_string.decode('ascii'):
         client = get_client()
@@ -180,7 +178,7 @@ def ows():
         return Response(response=f'an error occured: {e}', status=400)
 
 
-@app.route('/<instance_id>')
+@app.route('/<instance_id>/ows')
 def ows_instance(instance_id):
     if not request.query_string.decode('ascii'):
         client = get_client(instance_id)
