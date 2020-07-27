@@ -114,6 +114,11 @@ def get_client(instance_id=None):
 
 # -------------- Routes --------------
 
+@app.route('/')
+def root():
+    return Response(response=f"{VERSION}")
+
+
 @app.route('/version')
 def version():
     return Response(response=f"{VERSION}")
