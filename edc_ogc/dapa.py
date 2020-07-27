@@ -127,7 +127,7 @@ def search_times(dataset, catalog_client, bbox_or_geom, time):
         search_response = json.loads(
             catalog_client.search(
                 dataset['search_collection'], bbox_or_geom, time,
-                fields=['property.datetime'],
+                fields=['properties.datetime'],
                 next_key=next_key,
             )
         )
@@ -144,8 +144,8 @@ def search_times(dataset, catalog_client, bbox_or_geom, time):
         if not next_key:
             break
 
-    result_times.sort()
-    return result_times
+    # remove duplicates and order in ascending fashion
+    return sorted(set(result_times))
 
 
 OPERATOR_MAP = {
