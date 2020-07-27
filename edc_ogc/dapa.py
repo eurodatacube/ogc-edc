@@ -285,6 +285,18 @@ def get_area_aggregate_time(collection, fields, inputs, aggregates, time, bbox_o
 
 @dapa.route('/')
 def root():
+    # TODO: implement
+    return jsonify({})
+
+
+@dapa.route('/conformance')
+def conformance():
+    # TODO: implement
+    return jsonify({})
+
+
+@dapa.route('/collections')
+def collections():
     # TODO: better structure
     return jsonify([
         url_for('.collection_dapa', collection=ds['id'])
@@ -292,14 +304,14 @@ def root():
     ])
 
 
-@dapa.route('/<collection>/dapa/')
+@dapa.route('/collections/<collection>/dapa/')
 def collection_dapa(collection):
     return jsonify({
         'fields': url_for('.fields', collection=collection)
     })
 
 
-@dapa.route('/<collection>/dapa/fields')
+@dapa.route('/collections/<collection>/dapa/fields')
 def fields(collection):
     # TODO: add more metadata
     ds = get_config_client().get_dataset(collection)
@@ -310,7 +322,8 @@ def fields(collection):
         for band in ds['bands']
     ])
 
-@dapa.route('/<collection>/dapa/cube')
+
+@dapa.route('/collections/<collection>/dapa/cube')
 def cube(collection):
     fields, inputs = parse_fields(request.args['fields'])
     time = parse_time(request.args['time'])
@@ -393,7 +406,7 @@ def cube(collection):
     return send_file(filename, mimetype='application/x-netcdf')
 
 
-@dapa.route('/<collection>/dapa/area')
+@dapa.route('/collections/<collection>/dapa/area')
 def area(collection):
     client = get_config_client()
     ds = client.get_dataset(collection)
@@ -454,7 +467,7 @@ NUMPY_AGG_METHODS = {
 }
 
 
-@dapa.route('/<collection>/dapa/timeseries/area')
+@dapa.route('/collections/<collection>/dapa/timeseries/area')
 def timeseries_area(collection):
     client = get_config_client()
     ds = client.get_dataset(collection)
@@ -509,7 +522,7 @@ def timeseries_area(collection):
     return Response(tmp.getvalue(), mimetype='text/csv')
 
 
-@dapa.route('/<collection>/dapa/timeseries/position')
+@dapa.route('/collections/<collection>/dapa/timeseries/position')
 def timeseries_position(collection):
     client = get_config_client()
     ds = client.get_dataset(collection)
@@ -554,7 +567,7 @@ def timeseries_position(collection):
     return Response(tmp.getvalue(), mimetype='text/csv')
 
 
-@dapa.route('/<collection>/dapa/value/area')
+@dapa.route('/collections/<collection>/dapa/value/area')
 def value_area(collection):
     client = get_config_client()
     ds = client.get_dataset(collection)
@@ -607,7 +620,7 @@ def value_area(collection):
     return Response(values, mimetype='text/plain')
 
 
-@dapa.route('/<collection>/dapa/value/position')
+@dapa.route('/collections/<collection>/dapa/value/position')
 def value_position(collection):
     client = get_config_client()
     ds = client.get_dataset(collection)
