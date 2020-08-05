@@ -36,6 +36,12 @@
   api_endpoint: https://services-uswest2.sentinel-hub.com/api/v1
   sample_type: UINT16
   search_collection: landsat-8-l1c
+  filters:
+    maxCloudCoverage:
+      type: int
+      catalog_property_name: "eo:cloud_cover"
+      min: 0
+      max: 100
 
 - id: S1GRD
   '@id': https://services.sentinel-hub.com/configuration/v1/datasets/S1GRD
@@ -47,6 +53,55 @@
   timeextent: [2014-04-03, null]
   sample_type: UINT16
   search_collection: sentinel-1-grd
+  filters:
+    # maxCloudCoverage:
+    #   type: int
+    #   min: 0
+    #   max: 100
+    resolution:
+      type: enum
+      values:
+        - HIGH
+        - MEDIUM
+        - FULL
+    acquisitionMode:
+      type: enum
+      catalog_property_name: "sar:instrument_mode"
+      values:
+        - SM
+        - IW
+        - EW
+        - WV
+        - EN
+        - AN
+        - IM
+    polarization:
+      type: enum
+      values:
+        - SH
+        - SV
+        - DH
+        - DV
+        - HH
+        - HV
+        - VV
+        - VH
+    orbitDirection:
+      type: enum
+      catalog_property_name: "sat:orbit_state"
+      values:
+        - ASCENDING
+        - DESCENDING
+    timeliness:
+      type: enum
+      values:
+        - NRT10m
+        - NRT1h
+        - NRT3h
+        - Fast24h
+        - Offline
+        - Reprocessing
+        - ArchNormal
 
 - id: S2L1C
   '@id': https://services.sentinel-hub.com/configuration/v1/datasets/S2L1C
@@ -59,6 +114,12 @@
   timeextent: [2015-06-23, null]
   sample_type: UINT16
   search_collection: sentinel-2-l1c
+  filters:
+    maxCloudCoverage:
+      type: int
+      catalog_property_name: "eo:cloud_cover"
+      min: 0
+      max: 100
 
 - id: S2L2A
   '@id': https://services.sentinel-hub.com/configuration/v1/datasets/S2L2A
@@ -71,6 +132,12 @@
   timeextent: [2015-06-23, null]
   sample_type: UINT16
   search_collection: sentinel-2-l2a
+  filters:
+    maxCloudCoverage:
+      type: int
+      catalog_property_name: "eo:cloud_cover"
+      min: 0
+      max: 100
 
 - id: S3OLCI
   '@id': https://services.sentinel-hub.com/configuration/v1/datasets/S3OLCI
@@ -84,6 +151,12 @@
   api_endpoint: https://creodias.sentinel-hub.com/api/v1
   sample_type: UINT16
   search_collection: sentinel-3-olci
+  filters:
+    maxCloudCoverage:
+      type: int
+      catalog_property_name: "eo:cloud_cover"
+      min: 0
+      max: 100
 
 - id: S3SLSTR
   '@id': https://services.sentinel-hub.com/configuration/v1/datasets/S3SLSTR
@@ -97,6 +170,17 @@
   api_endpoint: https://creodias.sentinel-hub.com/api/v1
   sample_type: UINT16
   search_collection: sentinel-3-slstr
+  filters:
+    maxCloudCoverage:
+      type: int
+      catalog_property_name: "eo:cloud_cover"
+      min: 0
+      max: 100
+    orbitDirection:
+      type: enum
+      values:
+        - ASCENDING
+        - DESCENDING
 
 - id: S5PL2
   '@id': https://services.sentinel-hub.com/configuration/v1/datasets/S5PL2
@@ -110,6 +194,18 @@
   api_endpoint: https://creodias.sentinel-hub.com/api/v1
   sample_type: UINT16
   search_collection: sentinel-5p-l2
+  filters:
+    maxCloudCoverage:
+      type: int
+      catalog_property_name: "eo:cloud_cover"
+      min: 0
+      max: 100
+    timeliness:
+      type: enum
+      values:
+        - NRTI
+        - OFFL
+        - RPRO
 
 - id: MODIS
   '@id': https://services.sentinel-hub.com/configuration/v1/datasets/MODIS
@@ -123,6 +219,12 @@
   timeextent: [2016-02-16, null] # TODO
   api_endpoint: https://services-uswest2.sentinel-hub.com/api/v1
   sample_type: UINT16
+  filters:
+    maxCloudCoverage:
+      type: int
+      catalog_property_name: "eo:cloud_cover"
+      min: 0
+      max: 100
 
 # TODO: More
 # "PLANET_L1C" "S2GM" "PLEIADES" "CUSTOM"

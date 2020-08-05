@@ -42,7 +42,7 @@ class CatalogClient(ApiBase):
 
         return resp.content
 
-    def search(self, collection, bbox_or_geom, time, next_key=None, limit=1000, fields=None, distinct=None):
+    def search(self, collection, bbox_or_geom, time, next_key=None, limit=1000, fields=None, distinct=None, filters=None):
         request_body = {
             'collections': [collection],
             'datetime': '/'.join(isoformat(t) for t in time),
@@ -57,6 +57,9 @@ class CatalogClient(ApiBase):
 
         if fields:
             request_body['fields'] = {'include': fields}
+
+        if filters:
+            request_body['query'] = filters
 
         # TODO: does not work in SHub
         # if distinct:

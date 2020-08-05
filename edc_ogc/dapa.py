@@ -10,6 +10,7 @@ from uuid import uuid4
 import tempfile
 import traceback
 
+import pandas as pd
 from dateutil.parser import parse
 from flask import (
     Blueprint, request, Response, url_for, jsonify, send_file, after_this_request
@@ -120,7 +121,7 @@ def parse_time(value):
         raise ValueError(f'Invalid time value: {value}')
 
 
-def search_times(dataset, catalog_client, bbox_or_geom, time):
+def search_times(dataset, catalog_client, bbox_or_geom, time, filters=None):
     result_times = []
     next_key = None
     while True:
@@ -128,6 +129,7 @@ def search_times(dataset, catalog_client, bbox_or_geom, time):
             catalog_client.search(
                 dataset['search_collection'], bbox_or_geom, time,
                 fields=['properties.datetime'],
+                filters=filters,
                 next_key=next_key,
             )
         )
@@ -256,7 +258,7 @@ def expressions_to_evalscript(fields, inputs, aggregates=None):
 
 
 def get_area_aggregate_time(collection, fields, inputs, aggregates, time, bbox_or_geom, bbox,
-                            width=None, height=None, format='image/tiff'):
+                            width=None, height=None, format='image/tiff', filters=None):
     client = get_config_client()
 
     evalscript = expressions_to_evalscript(fields, inputs, aggregates)
@@ -275,8 +277,64 @@ def get_area_aggregate_time(collection, fields, inputs, aggregates, time, bbox_o
         height=height,
         format=format,
         evalscript=evalscript,
-        time=time
+        time=time,
+        filters=filters,
     )
+
+
+def parse_process_filters(collection, value):
+    client = get_config_client()
+    ds = client.get_dataset(collection)
+
+    filters = {}
+    if not value:
+        return filters
+
+    available_filters = ds.get('filters', {})
+    for item in value.split(','):
+        k, _, v = item.partition('=')
+        available_filter = available_filters.get(k)
+        if available_filter is None:
+            raise Exception(f'Unknown filter {k}')
+
+        if available_filter['type'] == 'int':
+            filter_value = int(v)
+        else:
+            assert v in available_filter['values']
+            filter_value = v
+
+        filters[k] = filter_value
+
+    return filters
+
+
+def parse_catalog_filters(collection, value):
+    client = get_config_client()
+    ds = client.get_dataset(collection)
+
+    filters = {}
+    if not value:
+        return filters
+
+    available_filters = ds.get('filters', {})
+    for item in value.split(','):
+        k, _, v = item.partition('=')
+        available_filter = available_filters.get(k)
+        if available_filter is None:
+            raise Exception(f'Unknown filter {k}')
+
+        if available_filter['type'] == 'int':
+            filter_value = {'lte': int(v)}
+        else:
+            assert v in available_filter['values']
+            filter_value = v
+
+        name = available_filter.get('catalog_property_name', k)
+        filters[name] = filter_value
+
+    return filters
+
+
 
 
 #
@@ -371,8 +429,12 @@ def cube(collection):
     v_x[:] = np.linspace(bbox[0], bbox[2], width)
     v_y[:] = np.linspace(bbox[3], bbox[1], height)
 
+    times = search_times(
+        ds, catalog_client, bbox_or_geom, time,
+        parse_catalog_filters(collection, request.args.get('filter'))
+    )
     # iterate over all slices
-    for i, raw_time in enumerate(search_times(ds, catalog_client, bbox_or_geom, time)):
+    for i, raw_time in enumerate(times):
         item_time = parse_iso8601(raw_time)
         response = get_area_aggregate_time(
             collection, fields, inputs, None,
@@ -434,7 +496,8 @@ def area(collection):
         raise NotImplementedError('Either bbox or geom is required')
 
     response = get_area_aggregate_time(
-        collection, fields, inputs, aggregates, time, bbox_or_geom, bbox
+        collection, fields, inputs, aggregates, time, bbox_or_geom, bbox,
+        parse_process_filters(collection, request.args.get('filter'))
     )
 
     # open with GDAL to set the band names
@@ -467,6 +530,15 @@ NUMPY_AGG_METHODS = {
 }
 
 
+def csv_to_img(csv_file):
+    csv_file.seek(0)
+    out = io.BytesIO()
+    ds = pd.read_csv(csv_file, parse_dates=['datetime'])
+    ds.set_index('datetime', inplace=True)
+    ds.plot().get_figure().savefig(out)
+    return out.getvalue()
+
+
 @dapa.route('/collections/<collection>/dapa/timeseries/area')
 def timeseries_area(collection):
     client = get_config_client()
@@ -496,7 +568,11 @@ def timeseries_area(collection):
     writer = csv.writer(tmp)
     writer.writerow(['datetime'] + [f'{name}_{agg}' for name, _ in fields for agg in aggregates])
 
-    for raw_time in search_times(ds, catalog_client, bbox_or_geom, time):
+    times = search_times(
+        ds, catalog_client, bbox_or_geom, time,
+        parse_catalog_filters(collection, request.args.get('filter'))
+    )
+    for raw_time in times:
         item_time = parse_iso8601(raw_time)
         response = get_area_aggregate_time(
             collection, fields, inputs, None,
@@ -518,6 +594,9 @@ def timeseries_area(collection):
                 ]
             )
             del ds
+
+    if request.args.get('format') == 'image/png':
+        return Response(csv_to_img(tmp), mimetype='image/png')
 
     return Response(tmp.getvalue(), mimetype='text/csv')
 
@@ -547,7 +626,12 @@ def timeseries_position(collection):
     tmp = io.StringIO()
     writer = csv.writer(tmp)
     writer.writerow(['datetime'] + [name for name, _ in fields])
-    for raw_time in search_times(ds, catalog_client, bbox, time):
+
+    times = search_times(
+        ds, catalog_client, bbox, time,
+        parse_catalog_filters(collection, request.args.get('filter'))
+    )
+    for raw_time in times:
         item_time = parse_iso8601(raw_time)
         response = get_area_aggregate_time(
             collection, fields, inputs, None,
@@ -563,6 +647,9 @@ def timeseries_position(collection):
                 [raw_time] + [str(v) for v in ds.ReadAsArray().flatten()]
             )
             del ds
+
+    if request.args.get('format') == 'image/png':
+        return Response(csv_to_img(tmp), mimetype='image/png')
 
     return Response(tmp.getvalue(), mimetype='text/csv')
 
@@ -595,7 +682,8 @@ def value_area(collection):
 
     if timeextent:
         response = get_area_aggregate_time(
-            collection, fields, inputs, aggregates, time, bbox_or_geom, bbox
+            collection, fields, inputs, aggregates, time, bbox_or_geom, bbox,
+            parse_process_filters(collection, request.args.get('filter'))
         )
     else:
         response = get_area_aggregate_time(
@@ -647,7 +735,8 @@ def value_position(collection):
 
     response = get_area_aggregate_time(
         collection, fields, inputs, aggregates, time, bbox, bbox,
-        width=1, height=1, format='image/tiff'
+        width=1, height=1, format='image/tiff',
+        filters=parse_process_filters(collection, request.args.get('filter')),
     )
 
     # TIFF reading here is necessary

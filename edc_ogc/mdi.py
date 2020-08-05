@@ -54,7 +54,7 @@ class Mdi(ApiBase):
         return resp.content
 
     def create_data_input(self, datasource, time, upsample, downsample,
-                          max_cloud_coverage=None, mosaicking_order=None):
+                          max_cloud_coverage=None, mosaicking_order=None, filters=None):
         data_filter = {}
         if time:
             from_, to = time
@@ -77,6 +77,9 @@ class Mdi(ApiBase):
 
         if 'collectionId' in datasource:
             data_filter['collectionId'] = datasource['collectionId']
+
+        if filters:
+            data_filter.update(filters)
 
         return {
             'type': datasource['type'],
@@ -105,7 +108,7 @@ class Mdi(ApiBase):
 
     def process_image(self, sources, bbox_or_geom, crs, width, height, format, evalscript,
                       time=None, upsample=None, downsample=None,
-                      max_cloud_coverage=None, mosaicking_order=None):
+                      max_cloud_coverage=None, mosaicking_order=None, filters=None):
 
         # prepend the version information if not already included
         if not evalscript.startswith('//VERSION=3'):
@@ -124,7 +127,8 @@ class Mdi(ApiBase):
                 'data': [
                     self.create_data_input(
                         source, time, upsample, downsample,
-                        max_cloud_coverage, mosaicking_order
+                        max_cloud_coverage, mosaicking_order,
+                        filters,
                     )
                     for source in sources
                 ]

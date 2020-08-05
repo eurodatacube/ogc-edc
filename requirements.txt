@@ -10,3 +10,5 @@ lxml==4.3.4
 oauthlib==3.0.1
 dataclasses
 django==1.11.26
+pandas
+matplotlib
