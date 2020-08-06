@@ -2,6 +2,7 @@ from textwrap import dedent
 import _ast
 from itertools import product
 import os
+from os.path import dirname, join
 import json
 from datetime import timedelta
 import csv
@@ -9,12 +10,14 @@ import io
 from uuid import uuid4
 import tempfile
 import traceback
+from itertools import zip_longest
 
 import pandas as pd
 from dateutil.parser import parse
 from flask import (
     Blueprint, request, Response, url_for, jsonify, send_file, after_this_request
 )
+from flask_swagger_ui import get_swaggerui_blueprint
 from eoxserver.core.util.timetools import parse_iso8601, parse_duration
 from eoxserver.render.browse.generate import parse_expression, extract_fields
 from eoxserver.contrib.vsi import TemporaryVSIFile
@@ -48,6 +51,12 @@ def get_config_client():
 
 
 dapa = Blueprint('dapa', __name__)
+
+
+swaggerui = get_swaggerui_blueprint(
+    '/docs',
+    '/static/openapi.json',
+)
 
 
 '''
@@ -357,9 +366,20 @@ def conformance():
 def collections():
     # TODO: better structure
     return jsonify([
-        url_for('.collection_dapa', collection=ds['id'])
+        url_for('.collection', collection=ds['id'])
         for ds in get_config_client().get_datasets()
     ])
+
+
+@dapa.route('/collections/<collection>/')
+def collection(collection):
+    ds = get_config_client().get_dataset(collection)
+    return jsonify({
+        'dapa': url_for('.collection_dapa', collection=collection),
+        'bbox': ds['extent'],
+        'timeextent': ds.get('timeextent'),
+        'filters': ds.get('filters'),
+    })
 
 
 @dapa.route('/collections/<collection>/dapa/')
@@ -375,9 +395,10 @@ def fields(collection):
     ds = get_config_client().get_dataset(collection)
     return jsonify([
         {
-            'id': band
+            'id': band,
+            'wavelength': wavelength,
         }
-        for band in ds['bands']
+        for band, wavelength in zip_longest(ds['bands'], ds.get('wavelengths', []))
     ])
 
 
