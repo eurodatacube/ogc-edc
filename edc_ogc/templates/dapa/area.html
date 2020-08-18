@@ -1,0 +1,10 @@
+{% extends "dapa/dapa_base.html" %}
+{% set dapa_method_name = 'Area' %}
+{% set dapa_method_path = '.area' %}
+
+
+{% block parameters %}
+{{super()}}
+{{map_input()}}
+{{aggregates()}}
+{% endblock parameters %}

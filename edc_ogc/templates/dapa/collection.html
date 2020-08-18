@@ -1,0 +1,43 @@
+{% extends "dapa/base.html" %}
+
+{% block title %}{{super()}} - Collection - {{dataset.title}}{% endblock title %}
+
+{% block body %}
+  <h2>Fields</h2>
+
+  <table class="table table-sm">
+  <thead>
+    <tr>
+      <th>Identifier</th>
+      {%- if dataset.wavelengths %}<th>Wavelength</th>{% endif %}
+    </tr>
+  </thead>
+  <tbody>
+    {%- for field_id, wavelength in zip_longest(dataset.bands, dataset.wavelengths) %}
+    <tr>
+      <td>{{field_id}}</td>
+      {%- if dataset.wavelengths %}<td>{{wavelength}}</td>{% endif %}
+    </tr>
+    {%- endfor %}
+  <tbody>
+  </table>
+
+  <h2>DAPA Endpoints</h2>
+
+  <a class="btn btn-outline-primary" href="{{url_for('.cube', collection=dataset['id'])}}">Cube</a>
+  <a class="btn btn-outline-primary" href="{{url_for('.area', collection=dataset['id'])}}">Area</a>
+  <a class="btn btn-outline-primary" href="{{url_for('.timeseries_area', collection=dataset['id'])}}">Timeseries - Area</a>
+  <a class="btn btn-outline-primary" href="{{url_for('.timeseries_position', collection=dataset['id'])}}">Timeseries - Position</a>
+  <a class="btn btn-outline-primary" href="{{url_for('.value_area', collection=dataset['id'])}}">Value - Area</a>
+  <a class="btn btn-outline-primary" href="{{url_for('.value_position', collection=dataset['id'])}}">Value - Position</a>
+
+{% endblock body %}
+
+
+{% block breadcrumbs %}
+<ol class="breadcrumb">
+  <li class="breadcrumb-item"><a href="{{url_for('.root')}}">Home</a></li>
+  <li class="breadcrumb-item"><a href="{{url_for('.collections')}}">Collections</a></li>
+  <li class="breadcrumb-item" aria-current="page">{{dataset.title}}</li>
+</ol>
+{% endblock breadcrumbs %}

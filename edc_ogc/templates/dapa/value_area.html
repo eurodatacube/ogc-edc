@@ -1,0 +1,9 @@
+{% extends "dapa/dapa_base.html" %}
+{% set dapa_method_name = 'Timeseries - Area' %}
+{% set dapa_method_path = '.timeseries_area' %}
+
+{% block parameters %}
+{{super()}}
+{{map_input()}}
+{{aggregates()}}
+{% endblock parameters %}

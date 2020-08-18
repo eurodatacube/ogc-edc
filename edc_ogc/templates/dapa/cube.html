@@ -1,0 +1,8 @@
+{% extends "dapa/dapa_base.html" %}
+{% set dapa_method_name = 'Cube' %}
+{% set dapa_method_path = '.cube' %}
+
+{% block parameters %}
+{{super()}}
+{{map_input()}}
+{% endblock parameters %}

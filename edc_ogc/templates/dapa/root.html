@@ -1,0 +1,10 @@
+{% extends "dapa/base.html" %}
+{% block body %}
+
+<ul>
+  <li><a href="{{url_for('swagger_ui.show')}}">API Docs</li>
+  <li><a href="{{url_for('.conformance')}}">Conformance</li>
+  <li><a href="{{url_for('.collections')}}">Collections</li>
+</ul>
+
+{% endblock body %}

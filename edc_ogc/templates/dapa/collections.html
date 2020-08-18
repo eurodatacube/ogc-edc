@@ -1,0 +1,18 @@
+{% extends "dapa/base.html" %}
+
+{% block title %}{{super()}} - Collections{% endblock title %}
+
+{% block body %}
+<ul>
+{% for dataset in datasets %}
+  <li><a href="{{url_for('.collection', collection=dataset.id)}}">{{dataset.title}}</a></li>
+{% endfor %}
+</ul>
+{% endblock body %}
+
+{% block breadcrumbs %}
+<ol class="breadcrumb">
+  <li class="breadcrumb-item"><a href="{{url_for('.root')}}">Home</a></li>
+  <li class="breadcrumb-item" aria-current="page">Collections</li>
+</ol>
+{% endblock breadcrumbs %}

@@ -13,3 +13,4 @@ django==1.11.26
 pandas
 matplotlib
 flask-swagger-ui
+flask-accept

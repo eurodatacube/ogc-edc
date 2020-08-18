@@ -1,0 +1,196 @@
+{% extends "dapa/base.html" %}
+
+{% block head %}
+  {{super()}}
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.6.0/dist/leaflet.css" integrity="sha512-xwE/Az9zrjBIphAcBb3F6JVqxf46+CDLwfLMHloNu6KEQCAWi6HcDUbeOfBIptF7tcCzusKFjFw2yuvEpDL9wQ==" crossorigin=""/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/0.4.2/leaflet.draw.css"/>
+  <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+  <script src="https://unpkg.com/leaflet@1.6.0/dist/leaflet.js" integrity="sha512-gZwIG9x3wUXg2hdXF6+rVkLF/0Vi9U8D2Ntg4Ga5I5BZpVkVxlJWbSQtXPSiUTtC0TjtGOmxa1AJPuV0CPthew==" crossorigin=""></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/0.4.2/leaflet.draw.js"></script>
+  <script src="http://arthur-e.github.io/Wicket/wicket.js"></script>
+
+{% endblock head %}
+
+{% block title %}{{super()}} - Collection - {{dataset.title}} - {{dapa_method_name}}{% endblock title %}
+
+
+{% block body %}
+  <form class="" action="{{url_for(dapa_method_path, collection=dataset.id)}}">
+{% block parameters %}
+  {% if dataset.timeextent %}
+    {% set start = date.today() - timedelta(days=5) %}
+    {% set stop = date.today() %}
+    <input type="hidden" name="time" value="{{start}}T00:00Z/{{stop}}T00:00Z">
+    <div class="form-group row">
+      <label for="datetime-start" class="col-sm-2 col-form-label">Start</label>
+      <div class="col-sm-10">
+        <input id="datetime-start" type="datetime-local" class="form-control" value="{{start}}T00:00">
+      </div>
+    </div>
+    <div class="form-group row">
+      <label for="datetime-stop" class="col-sm-2 col-form-label">Stop</label>
+      <div class="col-sm-10">
+        <input id="datetime-stop" type="datetime-local" class="form-control" value="{{stop}}T00:00">
+      </div>
+    </div>
+    <script>
+    $('#datetime-start,#datetime-stop').change(function() {
+      $('input[name="time"]')
+        .val($('#datetime-start').val() + '/' + $('#datetime-stop').val())
+    })
+    </script>
+  {% endif %}
+  <div class="form-group row">
+    <label for="fields" class="col-sm-2 col-form-label">Fields</label>
+    <div class="col-sm-10">
+      <input type="text" name="fields" id="fields" class="form-control">
+    </div>
+  </div>
+{% endblock parameters %}
+  <div class="form-group row">
+    <div class="col-sm-10">
+      <button type="submit" class="btn btn-primary">Send</button>
+    </div>
+  </div>
+  </form>
+{% endblock body %}
+
+
+{% block breadcrumbs %}
+<ol class="breadcrumb">
+  <li class="breadcrumb-item"><a href="{{url_for('.root')}}">Home</a></li>
+  <li class="breadcrumb-item"><a href="{{url_for('.collections')}}">Collections</a></li>
+  <li class="breadcrumb-item"><a href="{{url_for('.collection', collection=dataset.id)}}">{{dataset.title}}</a></li>
+  <li class="breadcrumb-item" aria-current="page">{{dapa_method_name}}</li>
+</ol>
+{% endblock breadcrumbs %}
+
+
+{% macro map_input(point=False) -%}
+
+<div class="form-group row">
+  <label for="datetime-start" class="col-sm-2 col-form-label">Geometry</label>
+  <div class="col-sm-10">
+    <div class="container" id="map" style="height: 500px;" class="form-control"></div>
+    <input type="hidden" id="geom_or_bbox" name="" value="">
+  </div>
+</div>
+<script>
+var map = L.map('map', {
+  crs: L.CRS.EPSG4326
+}).setView([51.505, -0.09], 5);
+
+var drawnItems = L.featureGroup().addTo(map);
+
+var drawControl = new L.Control.Draw({
+  draw: {
+    polyline: false,
+    circle: false,
+    {% if point %}
+    polygon: false,
+    rectangle: false,
+    {% else %}
+    marker: false,
+    {% endif %}
+  },
+
+  edit: {
+    featureGroup: drawnItems
+  },
+});
+map.addControl(drawControl);
+
+L.tileLayer.wms("//a.tiles.maps.eox.at/wms/", {
+  layers: 's2cloudless-2019',
+  format: 'image/png',
+  transparent: false,
+  attribution: '<a class="a-light" xmlns:dct="http://purl.org/dc/terms/" href="https://s2maps.eu" property="dct:title">Sentinel-2 cloudless - https://s2maps.eu</a> by <a class="a-light" xmlns:cc="http://creativecommons.org/ns#" href="https://eox.at" property="cc:attributionName" rel="cc:attributionURL">EOX IT Services GmbH</a> (Contains modified Copernicus Sentinel data 2019)'
+}).addTo(map);
+
+function toWKT(layer) {
+  var lng, lat, coords = [];
+  if (layer instanceof L.Polygon || layer instanceof L.Polyline) {
+    var latlngs = layer.getLatLngs()[0];
+    for (var i = 0; i < latlngs.length; i++) {
+      coords.push(latlngs[i].lng + " " + latlngs[i].lat);
+      if (i === 0) {
+        lng = latlngs[i].lng;
+        lat = latlngs[i].lat;
+      }
+    };
+    if (layer instanceof L.Polygon) {
+      return "POLYGON((" + coords.join(",") + "," + lng + " " + lat + "))";
+    } else if (layer instanceof L.Polyline) {
+      return "LINESTRING(" + coords.join(",") + ")";
+    }
+  } else if (layer instanceof L.Marker) {
+    return "POINT(" + layer.getLatLng().lng + " " + layer.getLatLng().lat + ")";
+  }
+}
+
+map.on(L.Draw.Event.CREATED, function (event) {
+  var layer = event.layer;
+  var inputElem = document.getElementById('geom_or_bbox');
+  if (layer instanceof L.Rectangle) {
+    inputElem.setAttribute('value', layer.getBounds().toBBoxString());
+    inputElem.setAttribute('name', 'bbox');
+  } else if (layer instanceof L.Marker) {
+    inputElem.setAttribute('value', layer.getLatLng().lng + "," + layer.getLatLng().lat);
+    inputElem.setAttribute('name', 'point');
+  } else {
+    inputElem.setAttribute('value', toWKT(layer));
+    inputElem.setAttribute('name', 'geom');
+  }
+  drawnItems.clearLayers();
+  drawnItems.addLayer(layer);
+});
+
+</script>
+{% endmacro %}
+
+{% macro aggregates() %}
+
+
+<div class="form-group row">
+  <label class="col-sm-2 col-form-label">Aggregates</label>
+  <input type="hidden" name="aggregate" value="">
+  <div class="col-sm-10">
+    <div class="custom-control custom-checkbox">
+      <input type="checkbox" class="custom-control-input" id="agg-min">
+      <label class="custom-control-label" for="agg-min">Min</label>
+    </div>
+    <div class="custom-control custom-checkbox">
+      <input type="checkbox" class="custom-control-input" id="agg-max">
+      <label class="custom-control-label" for="agg-max">Max</label>
+    </div>
+    <div class="custom-control custom-checkbox">
+      <input type="checkbox" class="custom-control-input" id="agg-avg">
+      <label class="custom-control-label" for="agg-avg">Avg</label>
+    </div>
+    <div class="custom-control custom-checkbox">
+      <input type="checkbox" class="custom-control-input" id="agg-stdev">
+      <label class="custom-control-label" for="agg-stdev">Stdev</label>
+    </div>
+  </div>
+</div>
+
+<script>
+$('input[type="checkbox"]').change(function() {
+  var vals = [];
+  if ($('#agg-min').is(':checked')) {
+    vals.push('min');
+  }
+  if ($('#agg-max').is(':checked')) {
+    vals.push('max');
+  }
+  if ($('#agg-avg').is(':checked')) {
+    vals.push('avg');
+  }
+  if ($('#agg-stdev').is(':checked')) {
+    vals.push('stdev');
+  }
+  $('input[name="aggregate"]').val(vals.join(','));
+});
+</script>
+
+{% endmacro %}

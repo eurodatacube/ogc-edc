@@ -4,7 +4,7 @@ from itertools import product
 import os
 from os.path import dirname, join
 import json
-from datetime import timedelta
+from datetime import timedelta, date
 import csv
 import io
 from uuid import uuid4
@@ -15,9 +15,11 @@ from itertools import zip_longest
 import pandas as pd
 from dateutil.parser import parse
 from flask import (
-    Blueprint, request, Response, url_for, jsonify, send_file, after_this_request
+    Blueprint, request, Response, url_for, jsonify, send_file, after_this_request,
+    render_template
 )
 from flask_swagger_ui import get_swaggerui_blueprint
+from flask_accept import accept, accept_fallback
 from eoxserver.core.util.timetools import parse_iso8601, parse_duration
 from eoxserver.render.browse.generate import parse_expression, extract_fields
 from eoxserver.contrib.vsi import TemporaryVSIFile
@@ -52,9 +54,13 @@ def get_config_client():
 
 dapa = Blueprint('dapa', __name__)
 
+dapa.add_app_template_global(zip)
+dapa.add_app_template_global(zip_longest)
+dapa.add_app_template_global(date)
+dapa.add_app_template_global(timedelta)
 
 swaggerui = get_swaggerui_blueprint(
-    '/docs',
+    '/oapi/docs',
     '/static/openapi.json',
 )
 
@@ -344,17 +350,21 @@ def parse_catalog_filters(collection, value):
     return filters
 
 
-
-
 #
 #  -------------- Routes
 #
 
 @dapa.route('/')
+@accept_fallback
 def root():
+    # default: return HTML
+    return render_template('dapa/root.html')
+
+
+@root.support('application/json')
+def root_json():
     # TODO: implement
     return jsonify({})
-
 
 @dapa.route('/conformance')
 def conformance():
@@ -363,7 +373,15 @@ def conformance():
 
 
 @dapa.route('/collections')
+@accept_fallback
 def collections():
+    return render_template('dapa/collections.html',
+        datasets=get_config_client().get_datasets()
+    )
+
+
+@collections.support('application/json')
+def collections_json():
     # TODO: better structure
     return jsonify([
         url_for('.collection', collection=ds['id'])
@@ -372,7 +390,15 @@ def collections():
 
 
 @dapa.route('/collections/<collection>/')
+@accept_fallback
 def collection(collection):
+    return render_template('dapa/collection.html',
+        dataset=get_config_client().get_dataset(collection)
+    )
+
+
+@collection.support('application/json')
+def collection_json(collection):
     ds = get_config_client().get_dataset(collection)
     return jsonify({
         'dapa': url_for('.collection_dapa', collection=collection),
@@ -404,6 +430,14 @@ def fields(collection):
 
 @dapa.route('/collections/<collection>/dapa/cube')
 def cube(collection):
+    client = get_config_client()
+    ds = client.get_dataset(collection)
+
+    if not request.args:
+        return render_template('dapa/cube.html',
+            dataset=ds
+        )
+
     fields, inputs = parse_fields(request.args['fields'])
     time = parse_time(request.args['time'])
 
@@ -417,9 +451,7 @@ def cube(collection):
     else:
         raise NotImplementedError('Either bbox or geom is required')
 
-    client = get_config_client()
     catalog_client = client.get_catalog_client(collection)
-    ds = client.get_dataset(collection)
     dx, dy = ds['resolution']
 
     filename = f'{tempfile.gettempdir()}/{uuid4().hex}.nc'
@@ -494,6 +526,11 @@ def area(collection):
     client = get_config_client()
     ds = client.get_dataset(collection)
 
+    if not request.args:
+        return render_template('dapa/area.html',
+            dataset=ds
+        )
+
     timeextent = ds.get('timeextent')
 
     # parse inputs
@@ -564,6 +601,12 @@ def csv_to_img(csv_file):
 def timeseries_area(collection):
     client = get_config_client()
     ds = client.get_dataset(collection)
+
+    if not request.args:
+        return render_template('dapa/timeseries_area.html',
+            dataset=ds
+        )
+
     timeextent = ds.get('timeextent')
     if not timeextent:
         raise Exception('This collection does not support timeseries extraction')
@@ -626,6 +669,12 @@ def timeseries_area(collection):
 def timeseries_position(collection):
     client = get_config_client()
     ds = client.get_dataset(collection)
+
+    if not request.args:
+        return render_template('dapa/timeseries_position.html',
+            dataset=ds
+        )
+
     timeextent = ds.get('timeextent')
     if not timeextent:
         raise Exception('This collection does not support timeseries extraction')
@@ -680,6 +729,11 @@ def value_area(collection):
     client = get_config_client()
     ds = client.get_dataset(collection)
 
+    if not request.args:
+        return render_template('dapa/value_area.html',
+            dataset=ds
+        )
+
     timeextent = ds.get('timeextent')
 
     # parse inputs
@@ -733,6 +787,11 @@ def value_area(collection):
 def value_position(collection):
     client = get_config_client()
     ds = client.get_dataset(collection)
+
+    if not request.args:
+        return render_template('dapa/value_position.html',
+            dataset=ds
+        )
 
     timeextent = ds.get('timeextent')
 
