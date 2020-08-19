@@ -555,7 +555,7 @@ def area(collection):
 
     response = get_area_aggregate_time(
         collection, fields, inputs, aggregates, time, bbox_or_geom, bbox,
-        parse_process_filters(collection, request.args.get('filter'))
+        filters=parse_process_filters(collection, request.args.get('filter'))
     )
 
     # open with GDAL to set the band names
@@ -758,7 +758,7 @@ def value_area(collection):
     if timeextent:
         response = get_area_aggregate_time(
             collection, fields, inputs, aggregates, time, bbox_or_geom, bbox,
-            parse_process_filters(collection, request.args.get('filter'))
+            filters=parse_process_filters(collection, request.args.get('filter'))
         )
     else:
         response = get_area_aggregate_time(
