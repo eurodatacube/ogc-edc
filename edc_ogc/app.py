@@ -12,6 +12,7 @@ from edc_ogc import VERSION
 from edc_ogc.ogc.client import OGCClient, OGCRequest
 from edc_ogc.configapi import ConfigAPIDefaultLayers, ConfigAPI
 from edc_ogc.mdi import Mdi, MdiError
+from edc_ogc.oapi import APP as OApiBlueprint
 
 # -------------- App setup --------------
 app = Flask(__name__, static_url_path='/static')
@@ -171,6 +172,9 @@ def ows():
     except Exception as e:
         logger.exception(e)
         return Response(response=f'an error occured: {e}', status=400)
+
+
+app.register_blueprint(OApiBlueprint, url_prefix='/oapi')
 
 
 @app.route('/<instance_id>')
