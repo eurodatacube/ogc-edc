@@ -30,12 +30,16 @@
 import os
 import logging
 import tempfile
+from datetime import datetime, date, time
 
 import numpy as np
+from django.utils.timezone import utc, make_aware
+from eoxserver.core.util.timetools import parse_iso8601
 from pygeoapi.provider.base import (BaseProvider,
                                     ProviderConnectionError,
                                     ProviderNoDataError,
                                     ProviderQueryError)
+from rasterio.io import MemoryFile
 
 from edc_ogc.configapi import ConfigAPIDefaultLayers, ConfigAPI
 
@@ -65,29 +69,23 @@ def get_config_client(instance_id=None):
     return config_api
 
 
-
 class EDCProvider(BaseProvider):
-    """Xarray Provider"""
+    """EDC Provider"""
 
     def __init__(self, provider_def):
         """
         Initialize object
         :param provider_def: provider definition
-        :returns: pygeoapi.providers.xarray_.XarrayProvider
+        :returns: EDCProvider
         """
 
         BaseProvider.__init__(self, provider_def)
 
-        print(provider_def)
-
-        print(self.data)
-
         self.config_client = get_config_client(provider_def.get('instance_id'))
-        dataset = self.config_client.get_dataset(self.data)
+        self.dataset = self.config_client.get_dataset(self.data)
 
         try:
-            # self._data = xarray.open_dataset(self.data)
-            self._coverage_properties = self._get_coverage_properties(dataset)
+            self._coverage_properties = self._get_coverage_properties()
 
             self.axes = [self._coverage_properties['x_axis_label'],
                          self._coverage_properties['y_axis_label'],
@@ -156,9 +154,6 @@ class EDCProvider(BaseProvider):
                     }]
                 }
             },
-            # '_meta': {
-            #     'tags': self._data.attrs
-            # }
         }
 
         return domainset
@@ -170,39 +165,25 @@ class EDCProvider(BaseProvider):
         :returns: CIS JSON object of rangetype metadata
         """
 
-        rangetype = {
+        return {
             'type': 'DataRecordType',
-            'field': []
+            'field': [
+                {
+                    'id': band,
+                    'type': 'QuantityType',
+                    'name': band,
+                    'definition': self.dataset['sample_type'],
+                    'nodata': None,
+                    'uom': {
+                        # 'id': 'http://www.opengis.net/def/uom/UCUM/{}'.format(
+                        #      units),
+                        # 'type': 'UnitReference',
+                        # 'code': units
+                    },
+                }
+                for band in self.dataset['bands']
+            ]
         }
-
-        # for name, var in self._data.variables.items():
-        #     LOGGER.debug('Determing rangetype for {}'.format(name))
-
-        #     name, units = None, None
-        #     if len(var.shape) >= 3:
-        #         parameter = self._get_parameter_metadata(
-        #             name, var.attrs)
-        #         name = parameter['description']
-        #         units = parameter['unit_label']
-
-        #         rangetype['field'].append({
-        #             'id': name,
-        #             'type': 'QuantityType',
-        #             'name': var.attrs.get('long_name') or name,
-        #             'definition': str(var.dtype),
-        #             'nodata': 'null',
-        #             'uom': {
-        #                 'id': 'http://www.opengis.net/def/uom/UCUM/{}'.format(
-        #                      units),
-        #                 'type': 'UnitReference',
-        #                 'code': units
-        #             },
-        #             '_meta': {
-        #                 'tags': var.attrs
-        #             }
-        #         })
-
-        return rangetype
 
     def query(self, range_subset=[], subsets={}, format_='json'):
         """
@@ -220,83 +201,76 @@ class EDCProvider(BaseProvider):
             self.data, None, bands, None, False, visual=False,
         )
 
+        extent = self.dataset['extent']
+        res_x, res_y = self.dataset['resolution']
+        x_bounds = extent[::2]
+        y_bounds = extent[1::2]
+        time_bounds = self.dataset.get('timeextent')
 
-        print(
-            self._coverage_properties['x_axis_label'],
-            self._coverage_properties['y_axis_label'],
-        )
+        if time_bounds:
+            time_bounds = [
+                make_aware(datetime.combine(self.dataset['timeextent'][0], time.min), utc),
+                make_aware(datetime.combine(self.dataset['timeextent'][1] or date.today(), time.min), utc),
+            ]
 
-2020-09-03 09:002020-09-11 09:30
-        x_bounds = ()
-        y_bounds = ()
+        if self._coverage_properties['x_axis_label'] in subsets:
+            x_bounds = subsets[self._coverage_properties['x_axis_label']]
+        if self._coverage_properties['y_axis_label'] in subsets:
+            y_bounds = subsets[self._coverage_properties['y_axis_label']]
 
+        if self._coverage_properties['time_axis_label'] in subsets:
+            time_bounds = [
+                parse_iso8601(item)
+                for item in subsets[self._coverage_properties['time_axis_label']]
+            ]
 
         bbox = (x_bounds[0], y_bounds[0], x_bounds[1], y_bounds[1])
+        width = round(abs((bbox[2] - bbox[0]) / res_x))
+        height = round(abs((bbox[3] - bbox[1]) / res_y))
 
+        mdi_client = self.config_client.get_mdi(self.dataset['id'])
 
+        result = mdi_client.process_image(
+            sources=[datasource],
+            bbox=bbox,
+            crs='http://www.opengis.net/def/crs/EPSG/0/4326',
+            width=width,
+            height=height,
+            format='image/tiff',
+            evalscript=evalscript,
+            time=time_bounds,
+            # upsample=decoder.interpolation,
+            # downsample=decoder.interpolation,
+        )
 
-        if len(range_subset) < 1:
-            range_subset = self.fields
-
-        data = self._data[[*range_subset]]
-
-        if(self._coverage_properties['x_axis_label'] in subsets or
-           self._coverage_properties['y_axis_label'] in subsets or
-           self._coverage_properties['time_axis_label'] in subsets):
-
-            LOGGER.debug('Creating spatio-temporal subset')
-
-            query_params = {}
-            for key, val in subsets.items():
-                if data.coords[key].values[0] > data.coords[key].values[-1]:
-                    LOGGER.debug('Reversing slicing low/high')
-                    query_params[key] = slice(val[1], val[0])
-                else:
-                    query_params[key] = slice(val[0], val[1])
-
-            LOGGER.debug('Query parameters: {}'.format(query_params))
-            try:
-                data = data.sel(query_params)
-            except Exception as err:
-                LOGGER.warning(err)
-                raise ProviderQueryError(err)
-
-        if (any([data.coords[self.x_field].size == 0,
-                data.coords[self.y_field].size == 0])):
-            msg = 'No data found'
-            LOGGER.warning(msg)
-            raise ProviderNoDataError(msg)
+        with MemoryFile(result) as memfile:
+            with memfile.open() as dataset:
+                data = dataset.read()
 
         out_meta = {
-            'bbox': [
-                data.coords[self.x_field].values[0],
-                data.coords[self.y_field].values[0],
-                data.coords[self.x_field].values[-1],
-                data.coords[self.y_field].values[-1]
-            ],
+            'bbox': bbox,
             "time": [
-                _to_datetime_string(data.coords[self.time_field].values[0]),
-                _to_datetime_string(data.coords[self.time_field].values[-1])
+                _to_datetime_string(time_bounds[0]),
+                _to_datetime_string(time_bounds[-1])
             ],
             "driver": "edc",
-            "height": data.dims[self.y_field],
-            "width": data.dims[self.x_field],
-            "time_steps": data.dims[self.time_field],
-            "variables": {var_name: var.attrs
-                          for var_name, var in data.variables.items()}
+            "height": height,
+            "width": width,
+            "time_steps": (time_bounds[-1] - time_bounds[0]).total_seconds() // (24 * 60 * 60),
+            "variables": {
+                band: {}
+                for band in bands
+            }
         }
 
         LOGGER.debug('Serializing data in memory')
         if format_ == 'json':
             LOGGER.debug('Creating output in CoverageJSON')
-            return self.gen_covjson(out_meta, data, range_subset)
+            return self.gen_covjson(out_meta, data, bands)
 
         else:  # return data in native format
-            with tempfile.TemporaryFile() as fp:
-                LOGGER.debug('Returning data in native format')
-                fp.write(data.to_netcdf())
-                fp.seek(0)
-                return fp.read()
+            LOGGER.debug('Returning data in native format')
+            return result
 
     def gen_covjson(self, metadata, data, range_type):
         """
@@ -312,11 +286,6 @@ class EDCProvider(BaseProvider):
         LOGGER.debug('Creating CoverageJSON domain')
         minx, miny, maxx, maxy = metadata['bbox']
         mint, maxt = metadata['time']
-
-        if data.coords[self.y_field].values[0] > data.coords[self.y_field].values[-1]:  # noqa
-            LOGGER.debug('Reversing direction of {}'.format(self.y_field))
-            miny = data.coords[self.y_field].values[-1]
-            maxy = data.coords[self.y_field].values[0]
 
         cj = {
             'type': 'Coverage',
@@ -337,7 +306,7 @@ class EDCProvider(BaseProvider):
                     self.time_field: {
                         'start': mint,
                         'stop': maxt,
-                        'num': metadata['time_steps']
+                        'num': 1, # metadata['time_steps']
                     }
                 },
                 'referencing': [{
@@ -352,60 +321,61 @@ class EDCProvider(BaseProvider):
             'ranges': {}
         }
 
-        for variable in range_type:
-            pm = self._get_parameter_metadata(
-                variable, self._data[variable].attrs)
+        for band in range_type:
+            # pm = self._get_parameter_metadata(
+            #     variable, self._data[variable].attrs)
 
             parameter = {
                 'type': 'Parameter',
-                'description': pm['description'],
+                # 'description': ,# pm['description'],
                 'unit': {
-                    'symbol': pm['unit_label']
+                    # 'symbol': ,# pm['unit_label']
                 },
                 'observedProperty': {
-                    'id': pm['observed_property_id'],
-                    'label': {
-                        'en': pm['observed_property_name']
-                    }
+                    # 'id': ,#pm['observed_property_id'],
+                    # 'label': {
+                    #     'en': pm['observed_property_name']
+                    # }
                 }
             }
 
-            cj['parameters'][pm['id']] = parameter
+            cj['parameters'][band] = parameter
 
         try:
-            for key in cj['parameters'].keys():
+            for i, key in enumerate(cj['parameters'].keys()):
                 cj['ranges'][key] = {
                     'type': 'NdArray',
-                    'dataType': str(self._data[variable].dtype),
+                    'dataType': self.dataset['sample_type'],
                     'axisNames': [
                         'y', 'x', self._coverage_properties['time_axis_label']
                     ],
                     'shape': [metadata['height'],
                               metadata['width'],
-                              metadata['time_steps']]
+                              # metadata['time_steps']
+                              1
+                    ]
                 }
 
-                data = data.fillna(None)
-                cj['ranges'][key]['values'] = data[key].values.flatten().tolist()  # noqa
+                cj['ranges'][key]['values'] = data[i].flatten().tolist()  # noqa
         except IndexError as err:
             LOGGER.warning(err)
             raise ProviderQueryError('Invalid query parameter')
 
         return cj
 
-    def _get_coverage_properties(self, dataset):
+    def _get_coverage_properties(self):
         """
         Helper function to normalize coverage properties
 
         :returns: `dict` of coverage properties
         """
 
-        extent = dataset['extent']
-        res_x, res_y = dataset['resolution']
+        extent = self.dataset['extent']
+        res_x, res_y = self.dataset['resolution']
 
         properties = {
             'bbox': extent,
-            'time_range': dataset['timeextent'],
+            'time_range': self.dataset['timeextent'],
             'bbox_crs': 'http://www.opengis.net/def/crs/OGC/1.3/CRS84',
             'crs_type': 'GeographicCRS',
             'x_axis_label': self.x_field,
@@ -421,88 +391,7 @@ class EDCProvider(BaseProvider):
             'restime': None, #self.get_time_resolution()
         }
 
-
-
-        # time_var, y_var, x_var = [None, None, None]
-        # for coord in self._data.coords:
-        #     if coord.lower() == 'time':
-        #         time_var = coord
-        #         continue
-        #     if self._data.coords[coord].attrs['units'] == 'degrees_north':
-        #         y_var = coord
-        #         continue
-        #     if self._data.coords[coord].attrs['units'] == 'degrees_east':
-        #         x_var = coord
-        #         continue
-
-        # if self.x_field is None:
-        #     self.x_field = x_var
-        # if self.y_field is None:
-        #     self.y_field = y_var
-        # if self.time_field is None:
-        #     self.time_field = time_var
-
-        # It would be preferable to use CF attributes to get width
-        # resolution etc but for now a generic approach is used to asess
-        # all of the attributes based on lat lon vars
-
-
-
-
-
-
-        # properties = {
-        #     'bbox': [
-        #         self._data.coords[self.x_field].values[0],
-        #         self._data.coords[self.y_field].values[0],
-        #         self._data.coords[self.x_field].values[-1],
-        #         self._data.coords[self.y_field].values[-1],
-        #     ],
-        #     'time_range': [
-        #         _to_datetime_string(
-        #             self._data.coords[self.time_field].values[0]
-        #         ),
-        #         _to_datetime_string(
-        #             self._data.coords[self.time_field].values[-1]
-        #         )
-        #     ],
-        #     'bbox_crs': 'http://www.opengis.net/def/crs/OGC/1.3/CRS84',
-        #     'crs_type': 'GeographicCRS',
-        #     'x_axis_label': self.x_field,
-        #     'y_axis_label': self.y_field,
-        #     'time_axis_label': self.time_field,
-        #     'width': self._data.dims[self.x_field],
-        #     'height': self._data.dims[self.y_field],
-        #     'time': self._data.dims[self.time_field],
-        #     'time_duration': self.get_time_coverage_duration(),
-        #     'bbox_units': 'degrees',
-        #     'resx': np.abs(self._data.coords[self.x_field].values[1]
-        #                    - self._data.coords[self.x_field].values[0]),
-        #     'resy': np.abs(self._data.coords[self.y_field].values[1]
-        #                    - self._data.coords[self.y_field].values[0]),
-        #     'restime': self.get_time_resolution()
-        # }
-
-        # if 'crs' in self._data.variables.keys():
-        #     properties['bbox_crs'] = '{}/{}'.format(
-        #         'http://www.opengis.net/def/crs/OGC/1.3/',
-        #         self._data.crs.epsg_code)
-
-        #     properties['inverse_flattening'] = self._data.crs.\
-        #         inverse_flattening
-
-        #     properties['crs_type'] = 'ProjectedCRS'
-
-        # properties['axes'] = [
-        #     properties['x_axis_label'],
-        #     properties['y_axis_label'],
-        #     properties['time_axis_label']
-        # ]
-
-        properties['fields'] = dataset['bands']
-
-        # [name for name in self._data.variables
-        #                         if len(self._data.variables[name].shape) >= 3]
+        properties['fields'] = self.dataset['bands']
 
         return properties
 
@@ -523,42 +412,6 @@ class EDCProvider(BaseProvider):
             'observed_property_id': name,
             'observed_property_name': attrs.get('long_name', None)
         }
-
-    def get_time_resolution(self):
-        """
-        Helper function to derive time resolution
-        :returns: time resolution string
-        """
-
-        time_diff = (self._data[self.time_field][1] -
-                     self._data[self.time_field][0])
-
-        dts = np.array([time_diff.values.astype('timedelta64[{}]'.format(x))
-                       for x in ['Y', 'M', 'D', 'h', 'm', 's', 'ms']])
-
-        return str(dts[np.array([x.astype(np.int) for x in dts]) > 0][0])
-
-    def get_time_coverage_duration(self):
-        """
-        Helper function to derive time coverage duration
-        :returns: time coverage duration string
-        """
-
-        dur = self._data[self.time_field][-1] - self._data[self.time_field][0]
-        ms_difference = dur.values.astype('timedelta64[ms]').astype(np.double)
-
-        time_dict = {
-            'days': int(ms_difference / 1000 / 60 / 60 / 24),
-            'hours': int((ms_difference / 1000 / 60 / 60) % 24),
-            'minutes': int((ms_difference / 1000 / 60) % 60),
-            'seconds': int(ms_difference / 1000) % 60
-        }
-
-        times = ['{} {}'.format(val, key) for key, val
-                 in time_dict.items() if val > 0]
-
-        return ', '.join(times)
-
 
 def _to_datetime_string(datetime_obj):
     """
