@@ -31,15 +31,22 @@
 """ Flask module providing the route paths to the api"""
 
 import os
+from os.path import join, dirname
 
 import click
 
 from flask import Blueprint, make_response, request, send_from_directory
 
+import pygeoapi
 from pygeoapi.api import API
 from pygeoapi.util import get_mimetype, yaml_load
 
-APP = Blueprint('oapi', __name__)
+
+APP = Blueprint(
+    'oapi', 'pygeoapi',
+    static_folder=join(dirname(pygeoapi.__file__), 'static'),
+    static_url_path='static'
+)
 # APP.url_map.strict_slashes = False
 
 CONFIG = None
