@@ -127,16 +127,7 @@ class EDCProvider(BaseProvider):
                     'upperBound': c_props['bbox'][3],
                     'uomLabel': c_props['bbox_units'],
                     'resolution': c_props['resy']
-                },
-                    {
-                        'type': 'RegularAxisType',
-                        'axisLabel': c_props['time_axis_label'],
-                        'lowerBound': c_props['time_range'][0],
-                        'upperBound': c_props['time_range'][1],
-                        'uomLabel': c_props['restime'],
-                        'resolution': c_props['restime']
-                    }
-                ],
+                }],
                 'gridLimits': {
                     'type': 'GridLimitsType',
                     'srsName': 'http://www.opengis.net/def/crs/OGC/0/Index2D',
@@ -155,6 +146,16 @@ class EDCProvider(BaseProvider):
                 }
             },
         }
+
+        if c_props['time_range']:
+            domainset['generalGrid']['axis'].append({
+                'type': 'RegularAxisType',
+                'axisLabel': c_props['time_axis_label'],
+                'lowerBound': c_props['time_range'][0],
+                'upperBound': c_props['time_range'][1],
+                'uomLabel': c_props['restime'],
+                'resolution': c_props['restime']
+            })
 
         return domainset
 
