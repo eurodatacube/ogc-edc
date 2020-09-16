@@ -375,7 +375,7 @@ class EDCProvider(BaseProvider):
 
         properties = {
             'bbox': extent,
-            'time_range': self.dataset['timeextent'],
+            'time_range': self.dataset.get('timeextent'),
             'bbox_crs': 'http://www.opengis.net/def/crs/OGC/1.3/CRS84',
             'crs_type': 'GeographicCRS',
             'x_axis_label': self.x_field,

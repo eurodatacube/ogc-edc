@@ -11,6 +11,8 @@ RUN apt-get install unzip wget -y && \
     python3 setup.py install
 
 ENV CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+ENV PYGEOAPI_CONFIG=/home/ogc/edc_ogc/pygeoapi.conf.yaml
+ENV PYGEOAPI_OPENAPI=/home/ogc/edc_ogc/pygeoapi.openapi.yaml
 
 WORKDIR /home/ogc
 
@@ -20,4 +22,4 @@ ENV FLASK_APP edc_ogc/app.py
 COPY edc_ogc/. edc_ogc/.
 
 ENTRYPOINT []
-CMD ["flask", "run", "--host=0.0.0.0"]
+CMD ["flask", "run", "--host=0.0.0.0", "--port=80"]
