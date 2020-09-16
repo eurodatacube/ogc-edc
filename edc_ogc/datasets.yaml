@@ -78,7 +78,7 @@
   resolution: [0.002694945852330219, 0.002694945852330219]
   timeextent: [2016-02-16, null]
   api_endpoint: https://creodias.sentinel-hub.com/api/v1
-  sample_type: UINT16
+  sample_type: FLOAT32
 
 - id: S3SLSTR
   '@id': https://services.sentinel-hub.com/configuration/v1/datasets/S3SLSTR
@@ -90,7 +90,7 @@
   resolution: [0.002694945852330219, 0.002694945852330219]
   timeextent: [2016-02-16, null]
   api_endpoint: https://creodias.sentinel-hub.com/api/v1
-  sample_type: UINT16
+  sample_type: FLOAT32
 
 - id: S5PL2
   '@id': https://services.sentinel-hub.com/configuration/v1/datasets/S5PL2
@@ -102,7 +102,7 @@
   resolution: [0.002694945852330219, 0.002694945852330219] # TODO
   timeextent: [2016-02-16, null] # TODO
   api_endpoint: https://creodias.sentinel-hub.com/api/v1
-  sample_type: UINT16
+  sample_type: FLOAT32
 
 - id: MODIS
   '@id': https://services.sentinel-hub.com/configuration/v1/datasets/MODIS

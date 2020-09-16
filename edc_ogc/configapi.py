@@ -163,14 +163,20 @@ class ConfigAPIBase(ApiBase):
         else:
             pixellist = ', '.join(f'sample.{band}' for band in bands)
 
+
+        sample_type = dataset.get('sample_type', 'UINT16')
+
         evalscript = textwrap.dedent(f"""\
             //VERSION=3
             function setup() {{
                 return {{
-                    input: [{bandlist}{', "dataMask"' if transparent else ''}],
+                    input: [{{
+                        bands: [{bandlist}{', "dataMask"' if transparent else ''}],
+                        units: "{'DN' if sample_type == 'UINT16' else 'reflectance'}"
+                    }}],
                     output: {{
                         bands: {len(bands) + 1 if transparent else len(bands)},
-                        sampleType: "{'AUTO' if visual else dataset.get('sample_type', 'UINT16')}"
+                        sampleType: "{'AUTO' if visual else sample_type}"
                     }}
                 }};
             }}
