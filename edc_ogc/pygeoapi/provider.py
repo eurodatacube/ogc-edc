@@ -253,11 +253,11 @@ class EDCProvider(BaseProvider):
             "time": [
                 _to_datetime_string(time_bounds[0]),
                 _to_datetime_string(time_bounds[-1])
-            ],
+            ] if time_bounds else [],
             "driver": "edc",
             "height": height,
             "width": width,
-            "time_steps": (time_bounds[-1] - time_bounds[0]).total_seconds() // (24 * 60 * 60),
+            "time_steps": ((time_bounds[-1] - time_bounds[0]).total_seconds() // (24 * 60 * 60) if time_bounds else 0),
             "variables": {
                 band: {}
                 for band in bands
