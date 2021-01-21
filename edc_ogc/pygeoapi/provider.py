@@ -160,6 +160,13 @@ class EDCProvider(BaseProvider):
                 'resolution': c_props['restime']
             })
 
+            domainset['generalGrid']['gridLimits']['axis'].append({
+                'type': 'IndexAxisType',
+                'axisLabel': 't',
+                'lowerBound': 0,
+                'upperBound': None,
+            })
+
         return domainset
 
     def get_coverage_rangetype(self):
