@@ -1,5 +1,8 @@
 FROM eoxa/eoxserver:latest
 
+# lxml requirements
+RUN apt-get install -y libxml2-dev libxslt-dev python-dev
+
 ADD requirements.txt .
 RUN pip3 install -r requirements.txt
 
