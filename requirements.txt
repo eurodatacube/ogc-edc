@@ -9,4 +9,3 @@ flask==1.1.1
 lxml==4.3.5
 oauthlib==3.0.1
 dataclasses
-django==1.11.26
