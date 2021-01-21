@@ -29,6 +29,7 @@
 
 import os
 import logging
+import json
 import tempfile
 from datetime import datetime, date, time
 
@@ -38,10 +39,12 @@ from eoxserver.core.util.timetools import parse_iso8601
 from pygeoapi.provider.base import (BaseProvider,
                                     ProviderConnectionError,
                                     ProviderNoDataError,
-                                    ProviderQueryError)
+                                    ProviderQueryError,
+                                    ProviderInvalidQueryError)
 from rasterio.io import MemoryFile
 
 from edc_ogc.configapi import ConfigAPIDefaultLayers, ConfigAPI
+from edc_ogc.mdi import MdiError
 
 LOGGER = logging.getLogger(__name__)
 
@@ -231,18 +234,31 @@ class EDCProvider(BaseProvider):
 
         mdi_client = self.config_client.get_mdi(self.dataset['id'])
 
-        result = mdi_client.process_image(
-            sources=[datasource],
-            bbox=bbox,
-            crs='http://www.opengis.net/def/crs/EPSG/0/4326',
-            width=width,
-            height=height,
-            format='image/tiff',
-            evalscript=evalscript,
-            time=time_bounds,
-            # upsample=decoder.interpolation,
-            # downsample=decoder.interpolation,
-        )
+        try:
+            result = mdi_client.process_image(
+                sources=[datasource],
+                bbox=bbox,
+                crs='http://www.opengis.net/def/crs/EPSG/0/4326',
+                width=width,
+                height=height,
+                format='image/tiff',
+                evalscript=evalscript,
+                time=time_bounds,
+                # upsample=decoder.interpolation,
+                # downsample=decoder.interpolation,
+            )
+        except MdiError as err:
+            if 400 <= err.status_code < 500:
+                LOGGER.warning(err)
+                msg = err.content
+                try:
+                    msg = json.loads(err.content)['error']['errors']
+                except Exception as e:
+                    LOGGER.warning(e)
+                # NOTE: we use this exception type since it allows passing messages
+                raise ProviderInvalidQueryError(msg)
+            else:
+                raise
 
         with MemoryFile(result) as memfile:
             with memfile.open() as dataset:
