@@ -1,4 +1,4 @@
-PyYAML==5.1.2
+PyYAML==5.4
 chardet==3.0.4
 requests==2.22.0
 requests-oauthlib==1.2.0
